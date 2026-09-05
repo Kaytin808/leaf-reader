@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import { readFile, readdir, stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import config from '../capacitor.config.ts';
+
+const root = new URL('../www/', import.meta.url);
+const html = await readFile(new URL('index.html', root), 'utf8');
+assert.match(html, /viewport-fit=cover/);
+assert.doesNotMatch(
+  html,
+  /localhost:3000|@vite\/client|\/main\.tsx|_next\/image/,
+);
+const files = await readdir(root, { recursive: true });
+assert.ok(
+  files.some((path) => /pdf\.worker.*\.mjs$/.test(path)),
+  'Missing offline PDF worker',
+);
+assert.ok(
+  files.some((path) => path.includes('pdf-assets') && path.endsWith('.bcmap')),
+  'Missing PDF character maps',
+);
+for (const [, url] of html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)) {
+  assert.ok(
+    (await stat(new URL('.' + url, root))).size > 0,
+    'Missing app asset: ' + url,
+  );
+}
+assert.equal(config.appId, 'com.kaytin808.leafreader');
+assert.equal(config.webDir, 'www');
+assert.equal(
+  config.server?.url,
+  undefined,
+  'Native app must not depend on a development server',
+);
+console.log('Verified standalone reader assets:', fileURLToPath(root));

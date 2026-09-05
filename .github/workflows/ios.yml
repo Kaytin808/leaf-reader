@@ -1,0 +1,111 @@
+name: Build Leaf IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'mobile/**'
+      - 'ios/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package*.json'
+      - '*config*'
+      - 'env.d.ts'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leaf-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Test and bundle reader
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build:mobile
+      - run: npm run verify:mobile
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: leaf-web-${{ github.run_number }}
+          path: www/
+          if-no-files-found: error
+          retention-days: 7
+
+  ios:
+    name: Build unsigned iPhone IPA
+    needs: web
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: leaf-web-${{ github.run_number }}
+          path: www/
+      - run: xcodebuild -version
+      - run: npx cap sync ios
+      - name: Validate Apple project files
+        run: |
+          plutil -lint ios/App/App/Info.plist ios/App/App/PrivacyInfo.xcprivacy
+          xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+      - name: Archive for iPhone without Apple credentials
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          xcodebuild archive \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/Leaf.xcarchive" \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            2>&1 | tee build/xcodebuild.log
+      - name: Package and verify IPA
+        run: bash scripts/package-ipa.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Leaf-unsigned-${{ github.run_number }}
+          path: |
+            build/Leaf-unsigned.ipa
+            build/Leaf-unsigned.ipa.sha256
+            docs/INSTALL-IOS.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Keep build log if compilation fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Leaf-build-log-${{ github.run_number }}
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,248 @@
+.masthead-actions {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.theme-buttons {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  flex-shrink: 0;
+}
+.theme-buttons button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font-size: 12px;
+}
+.theme-buttons button[aria-pressed='true'] {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+.reader-tools .theme-buttons span {
+  display: none;
+}
+.reader-tools .theme-buttons button {
+  padding: 6px;
+  min-height: 28px;
+}
+.reader-tools .theme-buttons {
+  padding: 2px;
+}
+.reader-tools {
+  align-items: center;
+}
+.card-location {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.4;
+  margin-top: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chapter-list > button[aria-current='location'] {
+  background: var(--muted);
+  color: var(--primary);
+  font-weight: 600;
+}
+.book-details-form {
+  display: grid;
+  gap: 17px;
+}
+.book-details-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 14px;
+}
+.book-details-form input[type='text'] {
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--background);
+  color: var(--foreground);
+  font:
+    16px Arial,
+    sans-serif;
+  width: 100%;
+}
+.cover-editor {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.cover-preview {
+  width: 96px;
+  height: 135px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.cover-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.cover-editor-actions {
+  display: grid;
+  gap: 12px;
+}
+.secondary-button {
+  padding: 10px 13px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--foreground);
+  background: var(--background);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.book-details-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.book-details-form .settings-note {
+  font-size: 12px;
+}
+.dark {
+  --background: #111b29;
+  --foreground: #e1e9f5;
+  --primary: #8bb8ff;
+  --primary-foreground: #14263d;
+  --secondary: #243449;
+  --muted: #233247;
+  --muted-foreground: #a2b2c7;
+  --border: #324358;
+}
+.dark body {
+  background: var(--background);
+  color: var(--foreground);
+}
+.dark .local-badge,
+.dark .eyebrow,
+.dark .library-heading p:last-child,
+.dark footer,
+.dark .book-card-footer,
+.dark .book-card .book-open > p,
+.dark .card-progress > span,
+.dark .settings-note,
+.dark .bookmark-list small,
+.dark .bookmark-list > p,
+.dark .chapter-list > p {
+  color: var(--muted-foreground);
+}
+.dark .library-search,
+.dark .count,
+.dark .shelf h2 span {
+  background: var(--muted);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.dark .library-search input {
+  color: var(--foreground);
+}
+.dark .library-search input::placeholder {
+  color: var(--muted-foreground);
+}
+.dark .welcome-panel,
+.dark .continue-panel {
+  background: #203f65;
+}
+.dark .empty-library {
+  color: var(--muted-foreground);
+}
+.dark .empty-library h3 {
+  color: var(--foreground);
+}
+.dark .book-cover,
+.dark .book-cover img {
+  background: #27374b;
+}
+.dark .library-notice {
+  background: #203550;
+  color: #c6ddff;
+  border-color: #395475;
+}
+.dark .import-drop {
+  background: #1a2a3e;
+  border-color: #576c87;
+}
+.dark .import-drop.dragging {
+  background: #294566;
+}
+.dark .import-drop p,
+.dark .import-drop > svg {
+  color: #a8bdd9;
+}
+.dark .chapter-list > button,
+.dark .bookmark-list > div > button:first-child {
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.dark .chapter-list > button:hover,
+.dark .chapter-list > button[aria-current='location'] {
+  background: var(--muted);
+}
+.dark .bookmark-list > div {
+  border-color: var(--border);
+}
+.dark .reader-error,
+.dark .import-errors {
+  background: #482e31;
+  color: #ffcbc7;
+}
+.dark .reader-dialog,
+.dark .import-dialog {
+  color: var(--foreground);
+}
+@media (max-width: 700px) {
+  .masthead-actions {
+    gap: 10px;
+  }
+  .masthead-actions .local-badge {
+    display: none;
+  }
+  .theme-buttons button {
+    padding: 7px 8px;
+  }
+  .reader-tools .theme-buttons button {
+    padding: 4px;
+    min-height: 26px;
+  }
+  .reader-tools .theme-buttons {
+    border: 0;
+    padding: 0;
+    gap: 0;
+  }
+  .reader-tools .theme-buttons svg {
+    width: 15px;
+  }
+  .reader-header {
+    flex-wrap: wrap;
+  }
+  .reader-book-title {
+    min-width: 90px;
+  }
+  .book-card-footer > div {
+    flex-wrap: wrap;
+  }
+  .cover-editor {
+    gap: 14px;
+  }
+}
