@@ -56,6 +56,9 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
+  Opening waits for the final viewport location before saving, and resize
+  receives the same saved passage. Failed restoration leaves the saved place
+  intact instead of silently opening and saving the beginning.
   EPUB open targets are consumed once so an older CFI cannot overwrite a newer
   reading position; PDF and TXT pages also receive a final save on exit.
 - Native reader toolbars use the root safe area once, removing excess blank

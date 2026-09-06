@@ -60,6 +60,11 @@ import {
 } from '@/lib/chapters';
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
+import {
+  reportLatestLocation,
+  restoreEpubLocation,
+  resizeEpubAt,
+} from '@/lib/epub-location';
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
 import { version } from '@/package.json';
@@ -83,26 +88,6 @@ type Props = {
   onClose: () => void;
   onUpdate: (book: LibraryBook) => void;
 };
-// EPUB.js resolves display/reportLocation before the animation-frame relocation event.
-function reportLatestLocation(r: Rendition) {
-  return new Promise<Location>((resolve, reject) => {
-    const received = (location: Location) => {
-      clearTimeout(timer);
-      r.off('relocated', received);
-      resolve(location);
-    };
-    const timer = setTimeout(() => {
-      r.off('relocated', received);
-      reject(new Error('Location reporting timed out'));
-    }, 4000);
-    r.on('relocated', received);
-    void r.reportLocation().catch((error) => {
-      clearTimeout(timer);
-      r.off('relocated', received);
-      reject(error);
-    });
-  });
-}
 const palette = {
   paper: { bg: '#ffffff', fg: '#243349' },
   sepia: { bg: '#f7eddc', fg: '#443b30' },
@@ -124,6 +109,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const epub = useRef<Book | null>(null);
   const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
+  const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const [position, setPosition] = useState(book.position);
@@ -535,14 +521,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           if (reflowableEpub.current)
             r.themes.fontSize(`${settings.current.fontSize}px`);
           r.on('relocated', (loc: Location) => {
-            if (cancelled || navigationPending.current) return;
+            if (cancelled || !epubReady.current || navigationPending.current)
+              return;
             setAtStart(loc.atStart);
             setAtEnd(loc.atEnd);
             let sectionCount = 0;
             localBook?.spine.each(() => {
               sectionCount++;
             });
-            const requested = requestedCfi.current;
+            const requested = requestedCfi.current ?? current.current.location;
             requestedCfi.current = undefined;
             save(
               positionForEpub(
@@ -572,12 +559,37 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               void turnRef.current(-1);
             }
           });
+          // Opening reports are provisional until the saved CFI has been
+          // displayed in the final toolbar-sized viewport. Never fall back to
+          // the beginning and overwrite a saved place if restoration fails.
+          const resume = initial.current.position.location || undefined;
+          navigationPending.current = true;
           try {
-            await r.display(initial.current.position.location || undefined);
-          } catch {
-            await r.display();
+            const restored = await restoreEpubLocation(r, resume, () => ({
+              width: cancelled ? 0 : (mount.current?.clientWidth ?? 0),
+              height: cancelled ? 0 : (mount.current?.clientHeight ?? 0),
+            }));
+            if (cancelled) return;
+            let sectionCount = 0;
+            localBook.spine.each(() => sectionCount++);
+            save(
+              positionForEpub(
+                restored,
+                indexedChapters,
+                sectionCount,
+                resume,
+                settings.current.fontSize,
+              ),
+              restored.atEnd,
+            );
+            requestedCfi.current = undefined;
+            epubReady.current = true;
+            setAtStart(restored.atStart);
+            setAtEnd(restored.atEnd);
+            setLoading(false);
+          } finally {
+            navigationPending.current = false;
           }
-          if (!cancelled) setLoading(false);
         }
       } catch (e) {
         if (!cancelled) {
@@ -595,6 +607,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       for (const dispose of contentListeners.values()) dispose();
       contentListeners.clear();
       rendition.current = null;
+      epubReady.current = false;
       epub.current = null;
       pdf.current = null;
       if (localBook) {
@@ -634,6 +647,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let timer: ReturnType<typeof setTimeout>;
     const reflow = async () => {
       if (cancelled || rendition.current !== r) return;
+      if (!epubReady.current) return;
       if (navigationPending.current) {
         timer = setTimeout(() => void reflow(), 80);
         return;
@@ -739,6 +753,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const area = mount.current;
         const r = rendition.current;
         if (cancelled || !area || !r) return;
+        if (!epubReady.current) return;
         if (navigationPending.current) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
@@ -747,7 +762,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = true;
         setTurning(true);
         try {
-          r.resize(area.clientWidth, area.clientHeight);
+          resizeEpubAt(
+            r,
+            area.clientWidth,
+            area.clientHeight,
+            previous || undefined,
+          );
           if (previous) await r.display(previous);
           const reported = await reportLatestLocation(r);
           if (!cancelled && rendition.current === r) {
@@ -954,11 +974,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setClosing(true);
     flushReadingTime(true);
     try {
-      if (rendition.current && !loading) {
+      if (rendition.current && epubReady.current && !loading) {
         navigationPending.current = true;
         requestedCfi.current = undefined;
-        persistEpubLocation(await reportLatestLocation(rendition.current));
-      } else if (!loading && total) {
+        persistEpubLocation(
+          await reportLatestLocation(rendition.current),
+          current.current.location,
+        );
+      } else if (book.format !== 'epub' && !loading && total) {
         const finalPage = Math.max(1, Math.min(total, page));
         save(
           {
