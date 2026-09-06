@@ -81,6 +81,21 @@ export function bindReaderTaps(
 ) {
   const doc =
     target.nodeType === 9 ? (target as Document) : target.ownerDocument!;
+  const enabled = () => {
+    try {
+      if (
+        (
+          doc.defaultView?.top as
+            | (Window & { __leafNativeTapEnabled?: boolean })
+            | null
+        )?.__leafNativeTapEnabled
+      )
+        return false;
+    } catch {
+      /* Standalone web reading still uses browser touches. */
+    }
+    return options.enabled();
+  };
   const active = new Set<number>();
   let lastTouch = -Infinity;
   type Tap = {
@@ -94,7 +109,7 @@ export function bindReaderTaps(
   let touchStart: Tap | null = null;
   function activate(tap: Tap, x: number, y: number, time: number) {
     if (
-      !options.enabled() ||
+      !enabled() ||
       time - tap.time > 450 ||
       Math.hypot(x - tap.x, y - tap.y) > 12 ||
       doc.getSelection()?.toString()
@@ -126,12 +141,7 @@ export function bindReaderTaps(
     if (event.isPrimary) active.clear();
     active.add(event.pointerId);
     const element = eligible(event.target);
-    if (
-      active.size !== 1 ||
-      event.button !== 0 ||
-      !options.enabled() ||
-      !element
-    ) {
+    if (active.size !== 1 || event.button !== 0 || !enabled() || !element) {
       start = null;
       return;
     }
@@ -176,7 +186,7 @@ export function bindReaderTaps(
     const element = eligible(event.target);
     const touch = event.touches[0];
     touchStart =
-      event.touches.length === 1 && touch && element && options.enabled()
+      event.touches.length === 1 && touch && element && enabled()
         ? {
             id: touch.identifier,
             x: touch.clientX,

@@ -27,6 +27,24 @@ for (const [, url] of html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)) {
 }
 assert.equal(config.appId, 'com.kaytin808.leafreader');
 assert.equal(config.webDir, 'www');
+const scene = await readFile(
+  new URL('../ios/App/App/SceneDelegate.swift', import.meta.url),
+  'utf8',
+);
+assert.match(
+  scene,
+  /rootViewController\s*=\s*LeafBridgeViewController\(\)/,
+  'The real scene entry point must install the native touch controller',
+);
+const project = await readFile(
+  new URL('../ios/App/App.xcodeproj/project.pbxproj', import.meta.url),
+  'utf8',
+);
+assert.match(
+  project,
+  /LeafBridgeViewController\.swift in Sources/,
+  'Native touch controller must be compiled into the IPA',
+);
 assert.equal(
   config.server?.url,
   undefined,

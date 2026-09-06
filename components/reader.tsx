@@ -50,6 +50,8 @@ import {
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
+import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
+import { version } from '@/package.json';
 
 type Props = {
   book: LibraryBook;
@@ -451,6 +453,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [book.format]);
 
   useEffect(() => {
+    if (!mount.current) return;
+    return bindNativeReaderTaps(mount.current, {
+      enabled: () =>
+        !interaction.current.blocked && (book.format !== 'pdf' || zoom <= 1),
+      turn: (direction) => void turnRef.current(direction),
+      image: (image) => setPicture(image),
+    });
+  }, [book.format, zoom]);
+
+  useEffect(() => {
     if (book.format !== 'epub' || !mount.current) return;
     let timer: ReturnType<typeof setTimeout>;
     const observer = new ResizeObserver(() => {
@@ -830,6 +842,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           </DialogDescription>
           {panel === 'settings' && (
             <div className="settings-list">
+              <p className="settings-note">Leaf {version}</p>
               <label htmlFor="page-color">
                 Page color
                 <Select
