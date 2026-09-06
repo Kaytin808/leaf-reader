@@ -11,6 +11,8 @@ import {
   Bookmark as BookmarkIcon,
   Check,
   Clock,
+  Eye,
+  EyeOff,
   List,
   Minus,
   Plus,
@@ -59,6 +61,7 @@ import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
 import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
+  LETTER_SPACING,
   LINE_HEIGHTS,
   PAGE_MARGINS,
   normalizeReadingPreferences,
@@ -106,7 +109,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     callback.current = onUpdate;
   }, [onUpdate]);
-  const mount = useRef<HTMLDivElement>(null);
+  const mount = useRef<HTMLElement>(null);
+  const focusModeButton = useRef<HTMLButtonElement>(null);
+  const showControlsButton = useRef<HTMLButtonElement>(null);
   const epub = useRef<Book | null>(null);
   const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
@@ -144,6 +149,21 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   );
   const [brightness, setBrightness] = useState(
     DEFAULT_READING_PREFERENCES.brightness,
+  );
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsVisibleRef = useRef(true);
+  const setReaderControls = useCallback((visible: boolean) => {
+    controlsVisibleRef.current = visible;
+    setControlsVisible(visible);
+    requestAnimationFrame(() =>
+      (visible ? focusModeButton : showControlsButton).current?.focus({
+        preventScroll: true,
+      }),
+    );
+  }, []);
+  const toggleControls = useCallback(
+    () => setReaderControls(!controlsVisibleRef.current),
+    [setReaderControls],
   );
   const [zoom, setZoom] = useState(1);
   const [zoomReset, setZoomReset] = useState(0);
@@ -431,6 +451,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   };
                 },
                 turn: (direction) => void turnRef.current(direction),
+                center: toggleControls,
                 image: (image) => setPicture(image),
               }),
             );
@@ -445,6 +466,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const typography = reflowableEpub.current
             ? {
                 'font-family': `${FONT_STACKS[settings.current.font]} !important`,
+                'letter-spacing': `${LETTER_SPACING[settings.current.font]} !important`,
                 'line-height': `${LINE_HEIGHTS[settings.current.spacing]} !important`,
                 'text-align': `${settings.current.alignment} !important`,
                 'padding-left': `${PAGE_MARGINS[settings.current.margin]}px !important`,
@@ -465,6 +487,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   p: {
                     'font-size': 'inherit !important',
                     'font-family': 'inherit !important',
+                    'letter-spacing': 'inherit !important',
                     'line-height': 'inherit !important',
                     'text-align': 'inherit !important',
                   },
@@ -543,7 +566,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [save]);
+  }, [save, toggleControls]);
 
   useEffect(() => {
     try {
@@ -583,6 +606,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         r.themes.override('background', palette[theme].bg, true);
         if (reflowableEpub.current) {
           r.themes.override('font-family', FONT_STACKS[font], true);
+          r.themes.override('letter-spacing', LETTER_SPACING[font], true);
           r.themes.override('line-height', String(LINE_HEIGHTS[spacing]), true);
           r.themes.override('text-align', alignment, true);
           r.themes.override('padding-left', `${PAGE_MARGINS[margin]}px`, true);
@@ -649,18 +673,20 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       enabled: () => !interaction.current.blocked,
       bounds: () => area.getBoundingClientRect(),
       turn: (direction) => void turnRef.current(direction),
+      center: toggleControls,
     });
-  }, [book.format]);
+  }, [book.format, toggleControls]);
 
   useEffect(() => {
     if (!mount.current) return;
     return bindNativeReaderTaps(mount.current, {
-      enabled: () =>
-        !interaction.current.blocked && (book.format !== 'pdf' || zoom <= 1),
+      enabled: () => !interaction.current.blocked,
+      canTurn: () => book.format !== 'pdf' || zoom <= 1,
       turn: (direction) => void turnRef.current(direction),
+      center: toggleControls,
       image: (image) => setPicture(image),
     });
-  }, [book.format, zoom]);
+  }, [book.format, zoom, toggleControls]);
 
   useEffect(() => {
     if (book.format !== 'epub' || !mount.current) return;
@@ -724,6 +750,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   });
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !controlsVisible && !panel && !picture) {
+        event.preventDefault();
+        setReaderControls(true);
+        return;
+      }
       if (
         panel ||
         picture ||
@@ -747,7 +778,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [panel, picture, zoom]);
+  }, [panel, picture, zoom, controlsVisible, setReaderControls]);
 
   const marked = book.bookmarks.some(
     (mark) => mark.location === position.location,
@@ -861,8 +892,25 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }
 
   return (
-    <div className={`reader reader-${theme}`}>
-      <header className="reader-header">
+    <div
+      className={`reader reader-${theme} ${controlsVisible ? '' : 'reader-focus'}`}
+      aria-busy={loading}
+    >
+      <p id="reader-touch-help" className="sr-only">
+        Tap the left or right side to turn pages. Tap the center to show or hide
+        reading controls. Use the left and right arrow keys to turn pages and
+        Escape to show hidden controls.
+      </p>
+      <output className="sr-only" aria-live="polite" aria-atomic="true">
+        {loading
+          ? 'Opening book'
+          : `${position.label}. ${position.progress}% read.`}
+      </output>
+      <header
+        className="reader-header"
+        aria-hidden={!controlsVisible}
+        inert={!controlsVisible}
+      >
         <button
           className="icon-button"
           onClick={() => void closeReader()}
@@ -876,7 +924,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           <h1>{book.title}</h1>
           <p>{book.author}</p>
         </div>
-        <div className="reader-tools">
+        <div className="reader-tools" role="toolbar" aria-label="Reader tools">
           <ThemeButtons />
           {book.format === 'epub' && (
             <button
@@ -906,8 +954,31 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           >
             <Settings2 size={20} />
           </button>
+          <button
+            ref={focusModeButton}
+            className="icon-button"
+            aria-label="Hide controls and focus on reading"
+            title="Focus reading"
+            aria-pressed={!controlsVisible}
+            disabled={loading}
+            onClick={toggleControls}
+          >
+            <EyeOff size={20} />
+          </button>
         </div>
       </header>
+      {!controlsVisible && (
+        <button
+          ref={showControlsButton}
+          className="reader-show-controls"
+          aria-label="Show reading controls"
+          title="Show reading controls"
+          onClick={() => setReaderControls(true)}
+        >
+          <Eye size={18} />
+          <span>Controls</span>
+        </button>
+      )}
       {error && (
         <div className="reader-error" role="alert">
           {error}
@@ -920,9 +991,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           </button>
         </div>
       )}
-      <div
+      <section
         className={`reading-area ${book.format === 'txt' ? 'text-area' : book.format === 'pdf' ? 'pdf-area' : 'epub-area'}`}
         ref={mount}
+        aria-label={`${book.title} reading page`}
+        aria-describedby="reader-touch-help"
+        aria-keyshortcuts="ArrowLeft ArrowRight Escape"
         style={{ background: palette[theme].bg, color: palette[theme].fg }}
       >
         {book.format === 'pdf' && !loading && pdf.current && (
@@ -936,6 +1010,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             onTurn={(direction) => {
               if (!interaction.current.blocked) void turnRef.current(direction);
             }}
+            onCenter={toggleControls}
             onError={setError}
           />
         )}
@@ -945,6 +1020,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             style={{
               fontSize,
               fontFamily: FONT_STACKS[font],
+              letterSpacing: LETTER_SPACING[font],
               lineHeight: LINE_HEIGHTS[spacing],
               paddingLeft: PAGE_MARGINS[margin],
               paddingRight: PAGE_MARGINS[margin],
@@ -962,15 +1038,23 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           style={{ opacity: (100 - brightness) / 100 }}
           aria-hidden="true"
         />
-      </div>
+      </section>
       {loading && !error && (
         <output className="reader-loading">
           <LoaderCircle className="spin" />
           <span>Opening your book…</span>
         </output>
       )}
-      <div className="reader-bottom">
-        <Progress aria-label="Reading progress" value={position.progress} />
+      <div
+        className="reader-bottom"
+        aria-hidden={!controlsVisible}
+        inert={!controlsVisible}
+      >
+        <Progress
+          aria-label="Reading progress"
+          aria-valuetext={`${position.progress}% read`}
+          value={position.progress}
+        />
         {book.format === 'pdf' && !loading && (
           <ZoomControls zoom={zoom} onChange={changeZoom} />
         )}
@@ -1111,6 +1195,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                         <SelectItem value="book">Book serif</SelectItem>
                         <SelectItem value="classic">Classic</SelectItem>
                         <SelectItem value="sans">Modern sans</SelectItem>
+                        <SelectItem value="accessible">
+                          Easy-read sans
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </label>
@@ -1128,7 +1215,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                       <span>{fontSize}px</span>
                       <button
                         className="icon-button"
-                        disabled={fontSize >= 32}
+                        disabled={fontSize >= 40}
                         aria-label="Larger text"
                         onClick={() => setFontSize((size) => size + 2)}
                       >
@@ -1221,8 +1308,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               </div>
               <p className="settings-note">
                 {book.format === 'pdf'
-                  ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; the arrow buttons always work.'
-                  : 'Tap the left or right side to turn a page; the center stays still. Tap EPUB illustrations to enlarge them. Your place stays saved.'}
+                  ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; center taps always show or hide controls.'
+                  : 'Tap the left or right side to turn a page. Tap the center to show or hide controls. Tap EPUB illustrations to enlarge them. Your place stays saved.'}
+              </p>
+              <p className="settings-note">
+                Easy-read sans adds wider letter spacing. Reader controls use
+                larger touch targets, clear keyboard focus, and your device’s
+                reduced-motion preference.
               </p>
               {book.format === 'epub' && (
                 <p className="settings-note">

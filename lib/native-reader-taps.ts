@@ -37,6 +37,8 @@ export function bindNativeReaderTaps(
   options: {
     enabled: () => boolean;
     turn: (direction: -1 | 1) => void;
+    canTurn?: () => boolean;
+    center?: () => void;
     image: (image: { src: string; alt: string }) => void;
   },
 ) {
@@ -82,8 +84,11 @@ export function bindNativeReaderTaps(
     }
     const bounds = area.getBoundingClientRect();
     const fraction = (point.x - bounds.left) / bounds.width;
-    if (fraction >= 0 && fraction < 0.4) options.turn(-1);
-    else if (fraction > 0.6 && fraction <= 1) options.turn(1);
+    if (fraction >= 0 && fraction < 0.4) {
+      if (options.canTurn?.() ?? true) options.turn(-1);
+    } else if (fraction > 0.6 && fraction <= 1) {
+      if (options.canTurn?.() ?? true) options.turn(1);
+    } else if (fraction >= 0.4 && fraction <= 0.6) options.center?.();
   };
   win?.addEventListener('leaf-native-tap', handle);
   return () => win?.removeEventListener('leaf-native-tap', handle);

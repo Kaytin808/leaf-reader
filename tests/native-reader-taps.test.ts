@@ -40,10 +40,12 @@ test('native touch coordinates reach scaled EPUB content without overlays or dup
   };
   const turns: number[] = [];
   const images: string[] = [];
+  let centers = 0;
   let enabled = true;
   const dispose = bindNativeReaderTaps(area, {
     enabled: () => enabled,
     turn: (n) => turns.push(n),
+    center: () => centers++,
     image: (image) => images.push(image.src),
   });
   const disposeDOM = bindReaderTaps(child, {
@@ -69,6 +71,7 @@ test('native touch coordinates reach scaled EPUB content without overlays or dup
     tap(30);
     tap(200);
     assert.deepEqual(turns, [1, -1]);
+    assert.equal(centers, 1);
     tap(370, 20);
     assert.deepEqual(turns, [1, -1], 'Header controls cannot turn pages');
     target = child.querySelector('a')!;

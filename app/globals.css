@@ -59,7 +59,11 @@ button:disabled {
   opacity: 0.45;
 }
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
   outline: 3px solid #ed9a50;
   outline-offset: 4px;
 }

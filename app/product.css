@@ -354,6 +354,11 @@ footer span {
   color: #243349;
   height: 100dvh;
 }
+.reader .icon-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
 .reader-header {
   display: flex;
   align-items: center;
@@ -363,6 +368,13 @@ footer span {
   min-height: 78px;
   background: inherit;
   flex-shrink: 0;
+  max-height: 180px;
+  overflow: hidden;
+  transition:
+    max-height 0.2s ease,
+    min-height 0.2s ease,
+    padding 0.2s ease,
+    opacity 0.16s ease;
 }
 .reader-book-title {
   min-width: 0;
@@ -393,6 +405,9 @@ footer span {
   flex: 1;
   min-height: 0;
   position: relative;
+}
+.reading-area:focus-visible {
+  outline-offset: -4px;
 }
 .reading-dimmer {
   position: absolute;
@@ -510,6 +525,42 @@ footer span {
   flex-shrink: 0;
   border-top: 1px solid #8999aa25;
   background: inherit;
+  max-height: 230px;
+  overflow: hidden;
+  transition:
+    max-height 0.2s ease,
+    padding 0.2s ease,
+    opacity 0.16s ease;
+}
+.reader-focus .reader-header,
+.reader-focus .reader-bottom {
+  min-height: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.reader-show-controls {
+  position: absolute;
+  z-index: 30;
+  top: max(10px, env(safe-area-inset-top));
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid #8292a866;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  box-shadow: 0 3px 14px #0d1e3324;
+  backdrop-filter: blur(12px);
+  font-size: 14px;
+  font-weight: 600;
 }
 .reader-bottom > [data-slot='progress'] {
   margin-top: -1px;
@@ -527,7 +578,7 @@ footer span {
 }
 .reading-position {
   text-align: center;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .reading-position small {
@@ -536,8 +587,8 @@ footer span {
   justify-content: center;
   gap: 4px;
   margin-top: 5px;
-  font-size: 11px;
-  opacity: 0.65;
+  font-size: 12px;
+  opacity: 0.78;
   flex-wrap: wrap;
 }
 .reader-time {
@@ -572,7 +623,9 @@ footer span {
 }
 .text-button {
   color: inherit;
-  font-size: 12px;
+  min-height: 44px;
+  padding: 8px;
+  font-size: 13px;
   border: 0;
   background: transparent;
   text-decoration: underline;
@@ -587,8 +640,9 @@ footer span {
   background: transparent;
   color: inherit;
   opacity: 0.8;
-  font-size: 12px;
-  padding: 7px 10px;
+  min-height: 44px;
+  font-size: 13px;
+  padding: 9px 12px;
 }
 .reader-loading {
   position: absolute;
@@ -802,8 +856,9 @@ footer span {
     gap: 0;
   }
   .reader-tools .icon-button {
-    width: 35px;
-    min-width: 35px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
   .text-page {
     padding: 30px 25px 45px;
@@ -817,17 +872,17 @@ footer span {
     margin-top: 7px;
   }
   .reading-position {
-    font-size: 12px;
+    font-size: 14px;
   }
   .reading-position input {
     font-size: 16px;
     width: 44px;
   }
   .reading-position small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .saved-places-button {
-    font-size: 11px;
+    font-size: 13px;
   }
   .import-dialog {
     padding: 23px !important;
@@ -885,12 +940,12 @@ footer span {
     font-size: 10px;
   }
   .reader-tools .icon-button {
-    min-width: 31px;
-    width: 31px;
+    min-width: 44px;
+    width: 44px;
   }
   .reader-header > .icon-button {
-    min-width: 34px;
-    width: 34px;
+    min-width: 44px;
+    width: 44px;
   }
   .reader-book-title p {
     max-width: 100px;
@@ -900,5 +955,30 @@ footer span {
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  .reader-header,
+  .reader-bottom {
+    border-color: currentColor;
+  }
+  .reading-position small,
+  .saved-places-button {
+    opacity: 1;
+  }
+  .reader .icon-button,
+  .reader-show-controls {
+    outline: 1px solid currentColor;
+    outline-offset: -1px;
+  }
+}
+@media (forced-colors: active) {
+  .reading-dimmer {
+    display: none;
+  }
+  .reader-show-controls {
+    border: 2px solid ButtonText;
+    background: Canvas;
+    color: CanvasText;
   }
 }

@@ -67,6 +67,7 @@ function ZoomViewport({
   children,
   image = false,
   onTurn,
+  onCenter,
   resetKey = 0,
 }: {
   width: number;
@@ -76,6 +77,7 @@ function ZoomViewport({
   children: (width: number) => ReactNode;
   image?: boolean;
   onTurn?: (direction: -1 | 1) => void;
+  onCenter?: () => void;
   resetKey?: number;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -89,8 +91,8 @@ function ZoomViewport({
   } | null>(null);
   const previousZoom = useRef(zoom);
   const previousReset = useRef(resetKey);
-  const current = useRef({ zoom, onZoom, onTurn });
-  current.current = { zoom, onZoom, onTurn };
+  const current = useRef({ zoom, onZoom, onTurn, onCenter });
+  current.current = { zoom, onZoom, onTurn, onCenter };
   const layout = zoomLayout(
     width,
     height,
@@ -207,9 +209,11 @@ function ZoomViewport({
     el.addEventListener('touchend', end);
     el.addEventListener('touchcancel', end);
     const unbind = bindReaderTaps(el, {
-      enabled: () => current.current.zoom <= 1 && !pinch,
+      enabled: () => !pinch,
+      canTurn: () => current.current.zoom <= 1,
       bounds: () => el.getBoundingClientRect(),
       turn: (direction) => current.current.onTurn?.(direction),
+      center: () => current.current.onCenter?.(),
     });
     return () => {
       observer.disconnect();
@@ -321,6 +325,7 @@ export function PdfPage({
   zoom,
   onZoom,
   onTurn,
+  onCenter,
   onError,
   resetKey,
 }: {
@@ -329,6 +334,7 @@ export function PdfPage({
   zoom: number;
   onZoom: (zoom: number) => void;
   onTurn: (direction: -1 | 1) => void;
+  onCenter?: () => void;
   onError: (message: string) => void;
   resetKey: number;
 }) {
@@ -362,6 +368,7 @@ export function PdfPage({
       zoom={zoom}
       onZoom={onZoom}
       onTurn={onTurn}
+      onCenter={onCenter}
       resetKey={resetKey}
     >
       {(width) => (

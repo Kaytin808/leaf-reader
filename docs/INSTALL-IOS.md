@@ -44,6 +44,11 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   page margins, and left or justified alignment. Page brightness works for all
   formats. Fixed-layout illustrated EPUBs retain their original typography and
   page geometry.
+- Tap the center of a page to hide or show the reader controls. Focus mode keeps
+  a visible Controls button available and also responds to Escape. The reader
+  includes 44-point touch targets, screen-reader page announcements, visible
+  keyboard focus, an easy-read font, text sizes up to 40px, and automatic
+  reduced-motion, increased-contrast, and forced-color support.
 - EPUB page counters show screen pages within the current book section, even
   without a chapter list. They recalculate when text size changes. New bookmarks
   include the page/section and text size when saved, but always reopen the exact

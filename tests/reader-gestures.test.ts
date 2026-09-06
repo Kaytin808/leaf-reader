@@ -16,11 +16,13 @@ function harness(iframeOffset = 0) {
   const doc = dom.window.document;
   const turns: number[] = [];
   const images: string[] = [];
+  const centers: number[] = [];
   let enabled = true;
   const dispose = bindReaderTaps(doc, {
     enabled: () => enabled,
     bounds: () => ({ left: iframeOffset, width: 400 }),
     turn: (direction) => turns.push(direction),
+    center: () => centers.push(1),
     image: (image) => images.push(image.src),
   });
   const pointer = (
@@ -74,6 +76,7 @@ function harness(iframeOffset = 0) {
     doc,
     turns,
     images,
+    centers,
     pointer,
     tap,
     touch,
@@ -88,15 +91,53 @@ function harness(iframeOffset = 0) {
   };
 }
 
-test('side taps turn left/right, center is quiet, and paginated iframe coordinates stay correct', () => {
+test('side taps turn pages, center toggles controls, and iframe coordinates stay correct', () => {
   for (const offset of [0, 1200]) {
     const h = harness(offset);
     h.tap(offset + 30);
     h.tap(offset + 370);
     h.tap(offset + 200);
     assert.deepEqual(h.turns, [-1, 1]);
+    assert.equal(h.centers.length, 1);
     h.dispose();
   }
+});
+test('center taps still work while page turns are disabled for a zoomed page', () => {
+  const dom = new JSDOM('<main><p>PDF page</p></main>');
+  const area = dom.window.document.querySelector('main')!;
+  const turns: number[] = [];
+  let centers = 0;
+  const dispose = bindReaderTaps(area, {
+    enabled: () => true,
+    canTurn: () => false,
+    bounds: () => ({ left: 0, width: 400 }),
+    turn: (direction) => turns.push(direction),
+    center: () => centers++,
+  });
+  const tap = (x: number) => {
+    for (const [name, time] of [
+      ['pointerdown', 1],
+      ['pointerup', 100],
+    ] as const) {
+      const event = new dom.window.MouseEvent(name, {
+        bubbles: true,
+        clientX: x,
+        clientY: 100,
+        button: 0,
+      });
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        timeStamp: { value: time },
+      });
+      area.querySelector('p')!.dispatchEvent(event);
+    }
+  };
+  tap(370);
+  tap(200);
+  assert.deepEqual(turns, []);
+  assert.equal(centers, 1);
+  dispose();
+  dom.window.close();
 });
 test('touch-only iPhone events turn both ways even without pointer events, and do not double-turn', () => {
   const h = harness(1200);

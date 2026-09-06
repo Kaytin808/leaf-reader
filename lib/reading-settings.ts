@@ -1,5 +1,5 @@
 export type ReadingTheme = 'paper' | 'sepia' | 'night';
-export type ReadingFont = 'book' | 'classic' | 'sans';
+export type ReadingFont = 'book' | 'classic' | 'sans' | 'accessible';
 export type ReadingSpacing = 'compact' | 'comfortable' | 'airy';
 export type ReadingMargin = 'narrow' | 'standard' | 'wide';
 export type ReadingAlignment = 'left' | 'justify';
@@ -28,6 +28,13 @@ export const FONT_STACKS: Record<ReadingFont, string> = {
   book: 'Georgia, serif',
   classic: 'Palatino, "Palatino Linotype", "Book Antiqua", serif',
   sans: '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif',
+  accessible: 'Verdana, Arial, Tahoma, sans-serif',
+};
+export const LETTER_SPACING: Record<ReadingFont, string> = {
+  book: 'normal',
+  classic: 'normal',
+  sans: 'normal',
+  accessible: '0.025em',
 };
 export const LINE_HEIGHTS: Record<ReadingSpacing, number> = {
   compact: 1.45,
@@ -59,10 +66,10 @@ export function normalizeReadingPreferences(
     fontSize:
       typeof input.fontSize === 'number' &&
       input.fontSize >= 14 &&
-      input.fontSize <= 32
+      input.fontSize <= 40
         ? Math.round(input.fontSize / 2) * 2
         : 20,
-    font: isOneOf(input.font, ['book', 'classic', 'sans'])
+    font: isOneOf(input.font, ['book', 'classic', 'sans', 'accessible'])
       ? input.font
       : 'book',
     spacing: isOneOf(input.spacing, ['compact', 'comfortable', 'airy'])

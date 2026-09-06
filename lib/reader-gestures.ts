@@ -76,6 +76,8 @@ export function bindReaderTaps(
     enabled: () => boolean;
     bounds: () => { left: number; width: number };
     turn: (direction: -1 | 1) => void;
+    canTurn?: () => boolean;
+    center?: () => void;
     image?: (image: { src: string; alt: string }) => void;
   },
 ) {
@@ -122,8 +124,11 @@ export function bindReaderTaps(
     }
     const bounds = options.bounds();
     const fraction = (x - bounds.left) / bounds.width;
-    if (fraction >= 0 && fraction < 0.4) options.turn(-1);
-    else if (fraction > 0.6 && fraction <= 1) options.turn(1);
+    if (fraction >= 0 && fraction < 0.4) {
+      if (options.canTurn?.() ?? true) options.turn(-1);
+    } else if (fraction > 0.6 && fraction <= 1) {
+      if (options.canTurn?.() ?? true) options.turn(1);
+    } else if (fraction >= 0.4 && fraction <= 0.6) options.center?.();
   }
   function eligible(raw: EventTarget | null) {
     const element = eventElement(raw);

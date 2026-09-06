@@ -9,8 +9,8 @@ test('reading preferences accept valid saved controls and normalize numeric valu
   assert.deepEqual(
     normalizeReadingPreferences({
       theme: 'sepia',
-      fontSize: 25,
-      font: 'sans',
+      fontSize: 39,
+      font: 'accessible',
       spacing: 'airy',
       margin: 'wide',
       alignment: 'justify',
@@ -18,8 +18,8 @@ test('reading preferences accept valid saved controls and normalize numeric valu
     }),
     {
       theme: 'sepia',
-      fontSize: 26,
-      font: 'sans',
+      fontSize: 40,
+      font: 'accessible',
       spacing: 'airy',
       margin: 'wide',
       alignment: 'justify',
