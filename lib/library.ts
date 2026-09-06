@@ -34,6 +34,9 @@ export type LibraryBook = {
   size: number;
   addedAt: number;
   lastRead: number;
+  readingTimeMs?: number;
+  finishedReadingTimeMs?: number;
+  completedAt?: number;
   cover?: string;
   metadataVersion?: number;
   metadataEdited?: boolean;
@@ -104,6 +107,9 @@ export function formatBytes(bytes: number) {
   return bytes < 1048576
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
     : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+export function isBookFinished(book: LibraryBook) {
+  return Boolean(book.completedAt) || book.position.progress >= 100;
 }
 export function errorMessage(error: unknown) {
   if (error instanceof DOMException && error.name === 'QuotaExceededError')

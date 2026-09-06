@@ -44,6 +44,10 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   without a chapter list. They recalculate when text size changes. New bookmarks
   include the page/section and text size when saved, but always reopen the exact
   passage. These are not print-edition page numbers or whole-book page totals.
+- Reading time appears while a book is in progress and freezes as **Finished in**
+  when the final page is reached. Time pauses in the background and after five
+  minutes without reading activity. Books finished before this feature report
+  that their historical reading time was not tracked.
 
 - Import books again on the iPhone: the desktop browser's library does not sync.
 - EPUB/PDF/TXT files, bookmarks, reading position, and successful cover lookups

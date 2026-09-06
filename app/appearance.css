@@ -51,6 +51,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.card-reading-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
 .chapter-list > button[aria-current='location'] {
   background: var(--muted);
   color: var(--primary);

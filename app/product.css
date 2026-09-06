@@ -248,6 +248,13 @@
   margin-top: 10px;
   color: #c3d4e9;
 }
+.continue-progress > .continue-reading-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  color: #f2cfaa;
+}
 .continue-cover {
   width: 160px;
   justify-self: end;
@@ -523,6 +530,12 @@ footer span {
   margin-top: 5px;
   font-size: 11px;
   opacity: 0.65;
+  flex-wrap: wrap;
+}
+.reader-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .reading-position form {
   display: flex;

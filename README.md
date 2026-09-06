@@ -1,6 +1,6 @@
 # Kayla’s Library
 
-A local web prototype for a personal book reader. Open EPUB, PDF and UTF-8 TXT files, keep a library in IndexedDB, save bookmarks, and resume reading.
+A local web prototype for a personal book reader. Open EPUB, PDF and UTF-8 TXT files, keep a library in IndexedDB, save bookmarks, resume reading, and track active reading time for each book.
 
 ## Run locally
 

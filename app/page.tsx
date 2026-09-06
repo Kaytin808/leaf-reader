@@ -20,6 +20,7 @@ import {
   X,
   Pencil,
   ImagePlus,
+  Clock3,
 } from 'lucide-react';
 import {
   Dialog,
@@ -54,9 +55,11 @@ import {
   formatBytes,
   errorMessage,
   positionLabel,
+  isBookFinished,
   updateBook,
   type LibraryBook,
 } from '@/lib/library';
+import { readingTimeStatus } from '@/lib/reading-statistics';
 import { inspectFile, METADATA_VERSION, SAMPLE_TEXT } from '@/lib/book-files';
 import { ThemeButtons } from '@/components/theme-provider';
 import {
@@ -99,7 +102,7 @@ export default function Home() {
   const coverInput = useRef<HTMLInputElement>(null);
   const active = books.find((b) => b.id === activeId);
   const recent = [...books]
-    .filter((b) => b.lastRead > 0)
+    .filter((b) => b.lastRead > 0 && !isBookFinished(b))
     .sort((a, b) => b.lastRead - a.lastRead)[0];
   const onUpdate = useCallback(
     (book: LibraryBook) =>
@@ -459,8 +462,8 @@ export default function Home() {
           .includes(query.toLowerCase()) &&
         (filter === 'all' ||
           (filter === 'reading'
-            ? b.lastRead > 0 && b.position.progress < 100
-            : b.position.progress === 100)),
+            ? b.lastRead > 0 && !isBookFinished(b)
+            : isBookFinished(b))),
     )
     .sort((a, b) => (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt));
   return (
@@ -518,6 +521,15 @@ export default function Home() {
               />
               <span>
                 {recent.position.progress}% · {positionLabel(recent.position)}
+              </span>
+              <span className="continue-reading-time">
+                <Clock3 size={13} />
+                {readingTimeStatus(
+                  isBookFinished(recent),
+                  isBookFinished(recent)
+                    ? recent.finishedReadingTimeMs
+                    : recent.readingTimeMs,
+                )}
               </span>
             </div>
             <button
@@ -622,13 +634,17 @@ export default function Home() {
                       </button>
                       <div className="card-progress">
                         <Progress
-                          value={book.position.progress}
+                          value={
+                            isBookFinished(book) ? 100 : book.position.progress
+                          }
                           aria-label={`${book.title} reading progress`}
                         />
                         <span>
-                          {book.lastRead
-                            ? `${book.position.progress}% read`
-                            : 'Not started'}
+                          {isBookFinished(book)
+                            ? 'Finished'
+                            : book.lastRead
+                              ? `${book.position.progress}% read`
+                              : 'Not started'}
                           {book.bookmarks.length > 0 && (
                             <span>
                               <Bookmark size={12} />
@@ -638,12 +654,23 @@ export default function Home() {
                         </span>
                       </div>
                       {book.lastRead > 0 && (
-                        <p
-                          className="card-location"
-                          title={positionLabel(book.position)}
-                        >
-                          {positionLabel(book.position)}
-                        </p>
+                        <>
+                          <p className="card-reading-time">
+                            <Clock3 size={12} />
+                            {readingTimeStatus(
+                              isBookFinished(book),
+                              isBookFinished(book)
+                                ? book.finishedReadingTimeMs
+                                : book.readingTimeMs,
+                            )}
+                          </p>
+                          <p
+                            className="card-location"
+                            title={positionLabel(book.position)}
+                          >
+                            {positionLabel(book.position)}
+                          </p>
+                        </>
                       )}
                       <div className="book-card-footer">
                         <span>

@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Bookmark as BookmarkIcon,
   Check,
+  Clock,
   List,
   Minus,
   Plus,
@@ -37,6 +38,7 @@ import {
   updateBook,
   errorMessage,
   epubPageLabel,
+  isBookFinished,
   type LibraryBook,
   type Position,
 } from '@/lib/library';
@@ -52,6 +54,7 @@ import { bindReaderTaps } from '@/lib/reader-gestures';
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
 import { version } from '@/package.json';
+import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
 
 type Props = {
   book: LibraryBook;
@@ -127,6 +130,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [atEnd, setAtEnd] = useState(false);
   const [turning, setTurning] = useState(false);
   const [closing, setClosing] = useState(false);
+  const readingClock = useRef(new ReadingClock(book.readingTimeMs ?? 0));
+  const persistedReadingTime = useRef(book.readingTimeMs ?? 0);
+  const finishedReadingTime = useRef(book.finishedReadingTimeMs);
+  const completed = useRef(isBookFinished(book));
+  const [isCompleted, setIsCompleted] = useState(isBookFinished(book));
+  const [readingTime, setReadingTime] = useState(
+    book.finishedReadingTimeMs ?? book.readingTimeMs ?? 0,
+  );
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   interaction.current.blocked =
     loading || turning || closing || !!panel || !!picture;
   const requestedCfi = useRef<string | undefined>(undefined);
@@ -138,21 +150,53 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     settings.current = { theme, fontSize };
   }, [theme, fontSize]);
-  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const save = useCallback((next: Position) => {
-    current.current = next;
-    setPosition(next);
+  const save = useCallback((next: Position, reachedEnd = false) => {
+    const now = Date.now();
+    const normalized = {
+      ...next,
+      progress: reachedEnd ? 100 : Math.min(next.progress, 99),
+    };
+    const elapsed = readingClock.current.capture(now);
+    const completing = reachedEnd && !completed.current;
+    if (completing) {
+      readingClock.current.pause(now);
+      completed.current = true;
+      setIsCompleted(true);
+      finishedReadingTime.current = elapsed;
+      setReadingTime(elapsed);
+    }
+    persistedReadingTime.current = Math.max(
+      persistedReadingTime.current,
+      elapsed,
+    );
+    current.current = normalized;
+    setPosition(normalized);
     setSaveState('Saving…');
     writeQueue.current = writeQueue.current
       .catch(() => {})
       .then(async () => {
-        const updated = await updateBook(initial.current.id, {
-          position: next,
-          lastRead: Date.now(),
-          ...(initial.current.format === 'epub'
-            ? { chapterHistoryVersion: CHAPTER_HISTORY_VERSION }
-            : {}),
+        const updated = await updateBook(initial.current.id, (latest) => {
+          const wasFinished = isBookFinished(latest);
+          const totalReadingTime = Math.max(latest.readingTimeMs ?? 0, elapsed);
+          return {
+            position: normalized,
+            lastRead: now,
+            readingTimeMs: totalReadingTime,
+            ...((reachedEnd || wasFinished) && {
+              completedAt: latest.completedAt ?? now,
+            }),
+            ...(completing &&
+              !wasFinished && {
+                finishedReadingTimeMs: totalReadingTime,
+              }),
+            ...(initial.current.format === 'epub'
+              ? { chapterHistoryVersion: CHAPTER_HISTORY_VERSION }
+              : {}),
+          };
         });
+        completed.current = isBookFinished(updated);
+        setIsCompleted(completed.current);
+        finishedReadingTime.current = updated.finishedReadingTimeMs;
         callback.current(updated);
         setSaveState('Place saved');
       })
@@ -160,6 +204,61 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         setSaveState('Could not save — check storage');
       });
   }, []);
+
+  const flushReadingTime = useCallback((pause = false) => {
+    const now = Date.now();
+    if (pause) readingClock.current.pause(now);
+    else readingClock.current.capture(now);
+    const elapsed = readingClock.current.totalMs;
+    setReadingTime(elapsed);
+    if (elapsed <= persistedReadingTime.current || completed.current) return;
+    persistedReadingTime.current = elapsed;
+    writeQueue.current = writeQueue.current
+      .catch(() => {})
+      .then(async () => {
+        const updated = await updateBook(initial.current.id, (latest) => ({
+          readingTimeMs: Math.max(latest.readingTimeMs ?? 0, elapsed),
+        }));
+        callback.current(updated);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (loading || panel || picture || isCompleted) {
+      if (!loading) flushReadingTime(true);
+      return;
+    }
+    const clock = readingClock.current;
+    clock.start(Date.now());
+    const activity = () => {
+      if (document.visibilityState !== 'visible') return;
+      clock.activity(Date.now());
+      setReadingTime(clock.totalMs);
+    };
+    const visibility = () => {
+      if (document.visibilityState === 'visible') clock.start(Date.now());
+      else flushReadingTime(true);
+    };
+    const interval = window.setInterval(() => {
+      clock.capture(Date.now());
+      setReadingTime(clock.totalMs);
+      if (clock.totalMs - persistedReadingTime.current >= 30_000)
+        flushReadingTime();
+    }, 10_000);
+    document.addEventListener('visibilitychange', visibility);
+    const pageHide = () => flushReadingTime(true);
+    window.addEventListener('pagehide', pageHide);
+    for (const event of ['pointerdown', 'touchstart', 'keydown'] as const)
+      window.addEventListener(event, activity, { passive: true });
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', visibility);
+      window.removeEventListener('pagehide', pageHide);
+      for (const event of ['pointerdown', 'touchstart', 'keydown'] as const)
+        window.removeEventListener(event, activity);
+      flushReadingTime(true);
+    };
+  }, [loading, panel, picture, isCompleted, flushReadingTime]);
 
   useEffect(() => {
     try {
@@ -312,6 +411,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 requestedCfi.current,
                 settings.current.fontSize,
               ),
+              loc.atEnd,
             );
           });
           r.on('displayError', () => {
@@ -409,6 +509,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               previous,
               fontSize,
             ),
+            reported.atEnd,
           );
         }
       } catch {
@@ -431,11 +532,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
-    save({
-      location: String(page),
-      label: `Page ${page} of ${total}`,
-      progress: Math.round((page / total) * 100),
-    });
+    save(
+      {
+        location: String(page),
+        label: `Page ${page} of ${total}`,
+        progress: Math.round((page / total) * 100),
+      },
+      page >= total,
+    );
     setAtStart(page <= 1);
     setAtEnd(page >= total);
     setPageInput(String(page));
@@ -494,6 +598,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       (direction > 0 && atEnd)
     )
       return;
+    if (document.visibilityState === 'visible' && !completed.current)
+      readingClock.current.activity(Date.now());
     setError('');
     requestedCfi.current = undefined;
     if (book.format === 'epub') {
@@ -578,6 +684,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }
   async function goTo(location: string) {
     if (navigationPending.current || closing) return;
+    if (document.visibilityState === 'visible' && !completed.current)
+      readingClock.current.activity(Date.now());
     setError('');
     setPanel(null);
     try {
@@ -629,11 +737,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         target,
         settings.current.fontSize,
       ),
+      location.atEnd,
     );
   }
   async function closeReader() {
     if (closing || turning || navigationPending.current) return;
     setClosing(true);
+    flushReadingTime(true);
     try {
       if (rendition.current && !loading) {
         navigationPending.current = true;
@@ -800,6 +910,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             <small>
               <Check size={12} />
               {saveState} <span>· {position.progress}%</span>
+              <span className="reader-time">
+                · <Clock size={12} />
+                {readingTimeStatus(
+                  isCompleted,
+                  isCompleted ? finishedReadingTime.current : readingTime,
+                )}
+              </span>
             </small>
           </div>
           <button

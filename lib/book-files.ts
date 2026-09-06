@@ -44,6 +44,7 @@ export async function inspectFile(file: File): Promise<LibraryBook> {
     author: 'Personal import',
     addedAt: Date.now(),
     lastRead: 0,
+    readingTimeMs: 0,
     position: { location: '', progress: 0, label: 'Not started' },
     bookmarks: [],
     metadataVersion: METADATA_VERSION,
