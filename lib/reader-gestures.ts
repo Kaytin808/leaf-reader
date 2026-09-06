@@ -82,25 +82,55 @@ export function bindReaderTaps(
   const doc =
     target.nodeType === 9 ? (target as Document) : target.ownerDocument!;
   const active = new Set<number>();
-  let start: {
+  let lastTouch = -Infinity;
+  type Tap = {
     id: number;
     x: number;
     y: number;
     time: number;
     element: Element;
-  } | null = null;
+  };
+  let start: Tap | null = null;
+  let touchStart: Tap | null = null;
+  function activate(tap: Tap, x: number, y: number, time: number) {
+    if (
+      !options.enabled() ||
+      time - tap.time > 450 ||
+      Math.hypot(x - tap.x, y - tap.y) > 12 ||
+      doc.getSelection()?.toString()
+    )
+      return;
+    const picture = imageFromTarget(tap.element);
+    if (picture && options.image) {
+      options.image(picture);
+      return;
+    }
+    const bounds = options.bounds();
+    const fraction = (x - bounds.left) / bounds.width;
+    if (fraction >= 0 && fraction < 0.4) options.turn(-1);
+    else if (fraction > 0.6 && fraction <= 1) options.turn(1);
+  }
+  function eligible(raw: EventTarget | null) {
+    const element = eventElement(raw);
+    return element &&
+      !element.closest(
+        'a, button, input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="button"]',
+      )
+      ? element
+      : null;
+  }
   const down = (raw: Event) => {
     const event = raw as PointerEvent;
+    if (Date.now() - lastTouch < 800) return;
+    // A pointer released outside the surface must not poison the next gesture.
+    if (event.isPrimary) active.clear();
     active.add(event.pointerId);
-    const element = eventElement(event.target);
+    const element = eligible(event.target);
     if (
       active.size !== 1 ||
       event.button !== 0 ||
       !options.enabled() ||
-      !element ||
-      element.closest(
-        'a, button, input, textarea, select, [contenteditable], [role="button"]',
-      )
+      !element
     ) {
       start = null;
       return;
@@ -117,7 +147,7 @@ export function bindReaderTaps(
     const event = raw as PointerEvent;
     if (
       start &&
-      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12
     )
       start = null;
   };
@@ -130,22 +160,60 @@ export function bindReaderTaps(
       !tap ||
       tap.id !== event.pointerId ||
       active.size ||
-      !options.enabled() ||
-      event.timeStamp - tap.time > 300 ||
-      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 10 ||
-      doc.getSelection()?.toString()
+      Date.now() - lastTouch < 800
     )
       return;
-    const picture = imageFromTarget(tap.element);
-    if (picture && options.image) {
-      options.image(picture);
-      return;
-    }
-    const bounds = options.bounds();
-    const fraction = (event.clientX - bounds.left) / bounds.width;
-    // Leave a quiet center for selecting text and resting a thumb.
-    if (fraction >= 0 && fraction < 0.4) options.turn(-1);
-    else if (fraction > 0.6 && fraction <= 1) options.turn(1);
+    activate(tap, event.clientX, event.clientY, event.timeStamp);
+  };
+  // iOS WebViews can deliver touch events without a complete pointer sequence.
+  // Touch owns the gesture once it begins; compatibility pointer/mouse events
+  // are ignored, including after opening a new section or an image dialog.
+  const touchDown = (raw: Event) => {
+    const event = raw as TouchEvent;
+    lastTouch = Date.now();
+    start = null;
+    active.clear();
+    const element = eligible(event.target);
+    const touch = event.touches[0];
+    touchStart =
+      event.touches.length === 1 && touch && element && options.enabled()
+        ? {
+            id: touch.identifier,
+            x: touch.clientX,
+            y: touch.clientY,
+            time: event.timeStamp,
+            element,
+          }
+        : null;
+  };
+  const touchMove = (raw: Event) => {
+    const event = raw as TouchEvent;
+    const touch = Array.from(event.touches).find(
+      (point) => point.identifier === touchStart?.id,
+    );
+    if (
+      event.touches.length !== 1 ||
+      !touch ||
+      (touchStart &&
+        Math.hypot(touch.clientX - touchStart.x, touch.clientY - touchStart.y) >
+          12)
+    )
+      touchStart = null;
+  };
+  const touchUp = (raw: Event) => {
+    const event = raw as TouchEvent;
+    const tap = touchStart;
+    touchStart = null;
+    lastTouch = Date.now();
+    const touch = Array.from(event.changedTouches).find(
+      (point) => point.identifier === tap?.id,
+    );
+    if (tap && touch && event.touches.length === 0)
+      activate(tap, touch.clientX, touch.clientY, event.timeStamp);
+  };
+  const touchCancel = () => {
+    touchStart = null;
+    lastTouch = Date.now();
   };
   const cancel = (raw: Event) => {
     active.delete((raw as PointerEvent).pointerId);
@@ -153,12 +221,17 @@ export function bindReaderTaps(
   };
   const scroll = () => {
     start = null;
+    touchStart = null;
   };
   const listeners = {
     pointerdown: down,
     pointermove: move,
     pointerup: up,
     pointercancel: cancel,
+    touchstart: touchDown,
+    touchmove: touchMove,
+    touchend: touchUp,
+    touchcancel: touchCancel,
     scroll,
   };
   for (const [name, handler] of Object.entries(listeners))
@@ -168,5 +241,6 @@ export function bindReaderTaps(
       target.removeEventListener(name, handler, true);
     active.clear();
     start = null;
+    touchStart = null;
   };
 }

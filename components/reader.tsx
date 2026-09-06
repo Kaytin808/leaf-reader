@@ -441,7 +441,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [page, total, loading, book.format, save]);
 
   useEffect(() => {
-    if (book.format !== 'txt' || !mount.current) return;
+    if (book.format === 'pdf' || !mount.current) return;
     const area = mount.current;
     return bindReaderTaps(area, {
       enabled: () => !interaction.current.blocked,

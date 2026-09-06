@@ -50,12 +50,34 @@ function harness(iframeOffset = 0) {
     pointer('pointerdown', x, { target });
     pointer('pointerup', x, { time: 100, target });
   };
+  const touch = (
+    name: string,
+    points: { identifier: number; clientX: number; clientY: number }[],
+    changed = points,
+    time = 1,
+    target: Element = doc.querySelector('p')!,
+  ) => {
+    const event = new dom.window.Event(name, { bubbles: true });
+    Object.defineProperties(event, {
+      touches: { value: points },
+      changedTouches: { value: changed },
+      timeStamp: { value: time },
+    });
+    target.dispatchEvent(event);
+  };
+  const touchTap = (x: number, target?: Element) => {
+    const point = { identifier: 10, clientX: x, clientY: 100 };
+    touch('touchstart', [point], [point], 1, target);
+    touch('touchend', [], [point], 380, target);
+  };
   return {
     doc,
     turns,
     images,
     pointer,
     tap,
+    touch,
+    touchTap,
     disable: () => {
       enabled = false;
     },
@@ -75,6 +97,53 @@ test('side taps turn left/right, center is quiet, and paginated iframe coordinat
     assert.deepEqual(h.turns, [-1, 1]);
     h.dispose();
   }
+});
+test('touch-only iPhone events turn both ways even without pointer events, and do not double-turn', () => {
+  const h = harness(1200);
+  h.touchTap(1570);
+  h.tap(1570); // Compatibility pointer stream must be ignored.
+  h.touchTap(1230);
+  h.touchTap(1400);
+  assert.deepEqual(h.turns, [1, -1]);
+  h.touchTap(1570, h.doc.querySelector('img')!);
+  assert.deepEqual(h.images, ['blob:local-map']);
+  h.dispose();
+});
+test('touch-only drags, long presses, pinches, links and cancellations do not turn', () => {
+  const h = harness();
+  const a = { identifier: 10, clientX: 370, clientY: 100 };
+  const b = { identifier: 20, clientX: 30, clientY: 100 };
+  h.touch('touchstart', [a]);
+  h.touch('touchmove', [{ ...a, clientY: 130 }]);
+  h.touch('touchend', [], [a], 100);
+  h.touch('touchstart', [a]);
+  h.touch('touchend', [], [a], 700);
+  h.touch('touchstart', [a]);
+  h.touch('touchstart', [a, b]);
+  h.touch('touchend', [a], [b], 100);
+  h.touch('touchend', [], [a], 200);
+  h.touch('touchstart', [a]);
+  h.touch('touchcancel', [], [a]);
+  h.touch('touchend', [], [a], 100);
+  h.touchTap(370, h.doc.querySelector('a')!);
+  assert.deepEqual(h.turns, []);
+  h.touchTap(370);
+  assert.deepEqual(
+    h.turns,
+    [1],
+    'Next clean touch recovers after cancellation',
+  );
+  h.dispose();
+});
+test('explicitly noneditable EPUB text accepts taps while actual editable content does not', () => {
+  const h = harness();
+  const p = h.doc.querySelector('p')!;
+  p.setAttribute('contenteditable', 'false');
+  h.touchTap(370);
+  p.setAttribute('contenteditable', 'true');
+  h.touchTap(370);
+  assert.deepEqual(h.turns, [1]);
+  h.dispose();
 });
 test('dragging, scrolling, long-press, cancel, and multi-touch never turn pages', () => {
   const h = harness();

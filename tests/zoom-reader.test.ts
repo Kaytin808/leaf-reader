@@ -158,9 +158,15 @@ test('PDF view renders, zooms around the viewport, handles pinch, resets fit, an
           name === 'touchend'
             ? []
             : [
-                { clientX: 195 - distance / 2, clientY: 240 },
-                { clientX: 195 + distance / 2, clientY: 240 },
+                { identifier: 1, clientX: 195 - distance / 2, clientY: 240 },
+                { identifier: 2, clientX: 195 + distance / 2, clientY: 240 },
               ],
+      });
+      Object.defineProperty(event, 'changedTouches', {
+        value: [
+          { identifier: 1, clientX: 195, clientY: 240 },
+          { identifier: 2, clientX: 195, clientY: 240 },
+        ],
       });
       viewport.dispatchEvent(event);
       return event;
@@ -178,8 +184,15 @@ test('PDF view renders, zooms around the viewport, handles pinch, resets fit, an
     assert.equal(viewport.scrollTop, 0);
     assert.equal(controls.querySelector('output')!.textContent, '100%');
     await act(async () => {
-      pointer('pointerdown');
-      pointer('pointerup');
+      const point = { identifier: 3, clientX: 370, clientY: 100 };
+      for (const name of ['touchstart', 'touchend']) {
+        const event = new dom.window.Event(name, { bubbles: true });
+        Object.defineProperties(event, {
+          touches: { value: name === 'touchstart' ? [point] : [] },
+          changedTouches: { value: [point] },
+        });
+        viewport.dispatchEvent(event);
+      }
     });
     assert.deepEqual(turns, [1]);
     assert.deepEqual(errors, []);
