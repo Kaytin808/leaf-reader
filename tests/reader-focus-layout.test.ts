@@ -22,7 +22,15 @@ test('normal mode reserves toolbar rows and focus mode expands the reading viewp
 
   const readingArea = rule('.reading-area');
   assert.match(readingArea, /position:\s*relative/);
+  assert.match(readingArea, /height:\s*100%/);
+  assert.match(readingArea, /min-height:\s*0/);
   assert.doesNotMatch(readingArea, /\binset:/);
+
+  const epubArea = rule('.epub-area');
+  assert.match(epubArea, /width:\s*100%/);
+  assert.match(epubArea, /height:\s*100%/);
+  assert.match(epubArea, /min-height:\s*0/);
+  assert.match(epubArea, /margin:\s*0 auto/);
 
   const focus = rule('.reader-focus');
   assert.match(focus, /grid-template-rows:\s*0\s+minmax\(0,\s*1fr\)\s+0/);

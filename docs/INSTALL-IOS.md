@@ -53,6 +53,8 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   the page. Focus mode smoothly expands into that space and restores the exact
   EPUB location after repagination. iPhone safe-area spacing keeps the first
   line below the status bar and Dynamic Island.
+- The EPUB render surface fills the available reading row before a book opens,
+  preventing blank pages in both normal and focus modes.
 - EPUB page counters show screen pages within the current book section, even
   without a chapter list. They recalculate when text size changes. New bookmarks
   include the page/section and text size when saved, but always reopen the exact
