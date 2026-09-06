@@ -114,7 +114,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
-  const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -153,12 +152,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const setReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible || navigationPending.current)
       return;
-    if (epubReady.current) {
-      layoutReflow.current.begin(current.current);
-      setSaveState('Fitting page…');
-      // Also schedule when a quick reversal produces no ResizeObserver event.
-      scheduleLayout.current(400);
-    }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
     requestAnimationFrame(() =>
@@ -828,12 +821,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       };
       timer = setTimeout(() => void resizeAtCurrentPage(), delay);
     };
-    scheduleLayout.current = schedule;
     const observer = new ResizeObserver(() => schedule());
     observer.observe(mount.current);
     return () => {
       cancelled = true;
-      scheduleLayout.current = () => {};
       observer.disconnect();
       clearTimeout(timer);
     };

@@ -28,7 +28,7 @@ function at(page: number): Location {
   };
 }
 
-test('repeated focus transitions update page counters without moving the saved passage', async () => {
+test('repeated viewport reflows update page counters without moving the saved passage', async () => {
   const id = 'focus-resume-cycle';
   let position = positionForEpub(at(45), [], 1);
   const original = structuredClone(position);
@@ -73,7 +73,7 @@ test('repeated focus transitions update page counters without moving the saved p
   }
 });
 
-test('reading ahead in focus becomes the anchor when returning to normal mode', () => {
+test('reading ahead after a viewport reflow becomes the next anchor', () => {
   const transition = new EpubReflow();
   const normal = positionForEpub(at(45), [], 1);
   transition.begin(normal);

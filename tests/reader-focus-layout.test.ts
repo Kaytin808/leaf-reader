@@ -21,7 +21,7 @@ function nativeRule(selector: string) {
   return nativeCss.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 }
 
-test('normal mode reserves toolbar rows and focus mode expands the reading viewport', () => {
+test('focus hides controls without resizing or repaginating the reading viewport', () => {
   const reader = rule('.reader');
   assert.match(reader, /display:\s*grid/);
   assert.match(reader, /--reader-header-height/);
@@ -41,8 +41,8 @@ test('normal mode reserves toolbar rows and focus mode expands the reading viewp
   assert.match(epubArea, /min-height:\s*0/);
   assert.match(epubArea, /margin:\s*0 auto/);
 
-  const focus = rule('.reader-focus');
-  assert.match(focus, /grid-template-rows:\s*0\s+minmax\(0,\s*1fr\)\s+0/);
+  assert.doesNotMatch(reader, /transition:\s*grid-template-rows/);
+  assert.doesNotMatch(rule('.reader-focus'), /grid-template-rows/);
 
   for (const selector of [
     '.reader-focus .reader-header',

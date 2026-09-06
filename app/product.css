@@ -358,10 +358,6 @@ footer span {
   color: #243349;
   height: 100dvh;
   overflow: hidden;
-  transition: grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.reader-focus {
-  grid-template-rows: 0 minmax(0, 1fr) 0;
 }
 .reader .icon-button {
   width: 44px;
