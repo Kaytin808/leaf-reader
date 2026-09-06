@@ -95,6 +95,7 @@ svg {
   display: flex;
   align-items: center;
   gap: 9px;
+  white-space: nowrap;
   font-family: Georgia, serif;
   font-size: 36px;
   font-weight: bold;
@@ -290,7 +291,8 @@ footer span {
     height: 77px;
   }
   .wordmark {
-    font-size: 32px;
+    font-size: 22px;
+    letter-spacing: -1px;
   }
   .local-badge {
     font-size: 0;

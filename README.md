@@ -1,4 +1,4 @@
-# Leaf
+# Kayla’s Library
 
 A local web prototype for a personal book reader. Open EPUB, PDF and UTF-8 TXT files, keep a library in IndexedDB, save bookmarks, and resume reading.
 
@@ -17,10 +17,10 @@ The Capacitor iOS project bundles the same reader for iOS/iPadOS 17+.
 `npm run ios:sync` builds the standalone assets and copies them into the iOS
 project. The installed app does not depend on the local web server.
 
-Push this project to a GitHub repository. The **Build Leaf IPA** workflow tests
+Push this project to a GitHub repository. The **Build Kayla's Library IPA** workflow tests
 the reader on Linux, then builds an unsigned arm64 IPA on a Mac runner using
-Xcode 26.3. You can also run it from **Actions → Build Leaf IPA → Run workflow**.
-Download the **Leaf-unsigned-<build number>** artifact from the successful run.
+Xcode 26.3. You can also run it from **Actions → Build Kayla's Library IPA → Run workflow**.
+Download the **Kaylas-Library-unsigned-<build number>** artifact from the successful run.
 The workflow has read-only repository permissions and needs no Apple secrets.
 Your account's normal GitHub Actions usage limits apply.
 

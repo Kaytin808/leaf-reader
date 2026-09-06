@@ -467,7 +467,7 @@ export default function Home() {
     <main className="library-shell">
       <header className="masthead">
         <Link className="wordmark" href="/">
-          <BookOpen size={27} /> leaf<span className="brand-dot">.</span>
+          <BookOpen size={27} /> Kayla’s Library
         </Link>
         <div className="masthead-actions">
           <span className="local-badge">

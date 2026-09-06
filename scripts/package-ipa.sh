@@ -11,10 +11,10 @@ lipo -archs "$app/$executable" | grep -qw arm64
 test "$(( $(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$app/Info.plist") ))" -gt 0
 
 staging=$(mktemp -d "$PWD/build/ipa.XXXXXX")
-ipa="$PWD/build/Leaf-unsigned.ipa"
+ipa="$PWD/build/Kaylas-Library-unsigned.ipa"
 mkdir "$staging/Payload"
 ditto "$app" "$staging/Payload/App.app"
 (cd "$staging" && ditto -c -k --keepParent Payload "$ipa")
-unzip -tq build/Leaf-unsigned.ipa
-(cd build && shasum -a 256 Leaf-unsigned.ipa > Leaf-unsigned.ipa.sha256)
-echo 'Created build/Leaf-unsigned.ipa for LiveContainer import or local signing.'
+unzip -tq build/Kaylas-Library-unsigned.ipa
+(cd build && shasum -a 256 Kaylas-Library-unsigned.ipa > Kaylas-Library-unsigned.ipa.sha256)
+echo 'Created build/Kaylas-Library-unsigned.ipa for LiveContainer import or local signing.'

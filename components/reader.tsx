@@ -660,7 +660,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         <button
           className="icon-button"
           onClick={() => void closeReader()}
-          disabled={closing || turning}
+          disabled={closing}
           aria-label="Back to library"
           title="Back to library"
         >
@@ -757,7 +757,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           <button
             className="icon-button"
             aria-label="Previous page"
-            disabled={loading || turning || atStart}
+            disabled={loading || atStart}
             onClick={() => void turn(-1)}
           >
             <ArrowLeft size={21} />
@@ -805,7 +805,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           <button
             className="icon-button"
             aria-label="Next page"
-            disabled={loading || turning || atEnd}
+            disabled={loading || atEnd}
             onClick={() => void turn(1)}
           >
             <ArrowRight size={21} />
@@ -842,7 +842,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           </DialogDescription>
           {panel === 'settings' && (
             <div className="settings-list">
-              <p className="settings-note">Leaf {version}</p>
+              <p className="settings-note">Kayla’s Library {version}</p>
               <label htmlFor="page-color">
                 Page color
                 <Select

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.kaytin808.leafreader',
-  appName: 'Leaf',
+  appName: 'Kayla’s Library',
   webDir: 'www',
   backgroundColor: '#fbfcfe',
   loggingBehavior: 'debug',

@@ -26,7 +26,17 @@ for (const [, url] of html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)) {
   );
 }
 assert.equal(config.appId, 'com.kaytin808.leafreader');
+assert.equal(config.appName, 'Kayla’s Library');
 assert.equal(config.webDir, 'www');
+const info = await readFile(
+  new URL('../ios/App/App/Info.plist', import.meta.url),
+  'utf8',
+);
+assert.match(
+  info,
+  /<key>CFBundleDisplayName<\/key>\s*<string>Kayla’s Library<\/string>/,
+  'The iPhone home-screen name must match the reader name',
+);
 const scene = await readFile(
   new URL('../ios/App/App/SceneDelegate.swift', import.meta.url),
   'utf8',
