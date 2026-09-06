@@ -49,9 +49,10 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   includes 44-point touch targets, screen-reader page announcements, visible
   keyboard focus, an easy-read font, text sizes up to 40px, and automatic
   reduced-motion, increased-contrast, and forced-color support.
-- Focus mode overlays its controls without resizing or repaginating the book,
-  and real screen-size changes restore the exact EPUB location. iPhone safe-area
-  spacing keeps the first line below the status bar and Dynamic Island.
+- Normal mode measures and reserves space for both toolbars so they never cover
+  the page. Focus mode smoothly expands into that space and restores the exact
+  EPUB location after repagination. iPhone safe-area spacing keeps the first
+  line below the status bar and Dynamic Island.
 - EPUB page counters show screen pages within the current book section, even
   without a chapter list. They recalculate when text size changes. New bookmarks
   include the page/section and text size when saved, but always reopen the exact

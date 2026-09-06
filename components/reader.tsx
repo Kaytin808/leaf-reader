@@ -1,6 +1,12 @@
 'use client';
 /* oxlint-disable react/react-compiler -- Effects synchronize imperative document renderers and browser preferences; React compiler is not enabled. */
-import { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+} from 'react';
 import type { Book, Rendition } from 'epubjs';
 import type { Location } from 'epubjs/types/rendition';
 import type Contents from 'epubjs/types/contents';
@@ -110,6 +116,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     callback.current = onUpdate;
   }, [onUpdate]);
   const mount = useRef<HTMLElement>(null);
+  const readerRoot = useRef<HTMLDivElement>(null);
+  const readerHeader = useRef<HTMLElement>(null);
+  const readerFooter = useRef<HTMLDivElement>(null);
   const focusModeButton = useRef<HTMLButtonElement>(null);
   const showControlsButton = useRef<HTMLButtonElement>(null);
   const epub = useRef<Book | null>(null);
@@ -165,6 +174,35 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     () => setReaderControls(!controlsVisibleRef.current),
     [setReaderControls],
   );
+  useLayoutEffect(() => {
+    const root = readerRoot.current;
+    const header = readerHeader.current;
+    const footer = readerFooter.current;
+    if (!root || !header || !footer) return;
+    const measure = () => {
+      const sizes = [
+        ['--reader-header-height', header.scrollHeight],
+        ['--reader-footer-height', footer.scrollHeight],
+      ] as const;
+      for (const [property, height] of sizes) {
+        const value = `${Math.ceil(height)}px`;
+        if (height > 0 && root.style.getPropertyValue(property) !== value)
+          root.style.setProperty(property, value);
+      }
+    };
+    const resize = new ResizeObserver(measure);
+    const mutation = new MutationObserver(measure);
+    resize.observe(root);
+    resize.observe(header);
+    resize.observe(footer);
+    mutation.observe(header, { subtree: true, childList: true });
+    mutation.observe(footer, { subtree: true, childList: true });
+    measure();
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  }, []);
   const [zoom, setZoom] = useState(1);
   const [zoomReset, setZoomReset] = useState(0);
   function changeZoom(value: number) {
@@ -931,6 +969,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
 
   return (
     <div
+      ref={readerRoot}
       className={`reader reader-${theme} ${controlsVisible ? '' : 'reader-focus'}`}
       aria-busy={loading}
     >
@@ -945,6 +984,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           : `${position.label}. ${position.progress}% read.`}
       </output>
       <header
+        ref={readerHeader}
         className="reader-header"
         aria-hidden={!controlsVisible}
         inert={!controlsVisible}
@@ -1084,6 +1124,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         </output>
       )}
       <div
+        ref={readerFooter}
         className="reader-bottom"
         aria-hidden={!controlsVisible}
         inert={!controlsVisible}
