@@ -542,12 +542,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             localBook?.spine.each(() => {
               sectionCount++;
             });
+            const requested = requestedCfi.current;
+            requestedCfi.current = undefined;
             save(
               positionForEpub(
                 loc,
                 indexedChapters,
                 sectionCount,
-                requestedCfi.current,
+                requested,
                 settings.current.fontSize,
               ),
               loc.atEnd,
@@ -669,6 +671,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             ),
             reported.atEnd,
           );
+          requestedCfi.current = undefined;
         }
       } catch {
         if (!cancelled)
@@ -763,6 +766,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
               reported.atEnd,
             );
+            requestedCfi.current = undefined;
           }
         } catch {
           if (!cancelled)
@@ -942,6 +946,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       ),
       location.atEnd,
     );
+    if (!target || requestedCfi.current === target)
+      requestedCfi.current = undefined;
   }
   async function closeReader() {
     if (closing || turning || navigationPending.current) return;
@@ -950,9 +956,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     try {
       if (rendition.current && !loading) {
         navigationPending.current = true;
-        persistEpubLocation(
-          await reportLatestLocation(rendition.current),
-          requestedCfi.current,
+        requestedCfi.current = undefined;
+        persistEpubLocation(await reportLatestLocation(rendition.current));
+      } else if (!loading && total) {
+        const finalPage = Math.max(1, Math.min(total, page));
+        save(
+          {
+            location: String(finalPage),
+            label: `Page ${finalPage} of ${total}`,
+            progress: Math.round((finalPage / total) * 100),
+          },
+          finalPage >= total,
         );
       }
       await writeQueue.current;

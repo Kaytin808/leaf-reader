@@ -55,6 +55,11 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   line below the status bar and Dynamic Island.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
+- Resume always commits the page currently on screen when leaving the reader.
+  EPUB open targets are consumed once so an older CFI cannot overwrite a newer
+  reading position; PDF and TXT pages also receive a final save on exit.
+- Native reader toolbars use the root safe area once, removing excess blank
+  space above and below the controls without allowing them to cover the page.
 - EPUB page counters show screen pages within the current book section, even
   without a chapter list. They recalculate when text size changes. New bookmarks
   include the page/section and text size when saved, but always reopen the exact

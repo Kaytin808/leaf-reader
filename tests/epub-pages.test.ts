@@ -5,18 +5,18 @@ import { positionForEpub, repairChapterLabel } from '../lib/chapters';
 import { epubPageLabel, positionLabel } from '../lib/library';
 
 const cfi = (offset: number) => `epubcfi(/6/2!/4/2/1:${offset})`;
-function location(page: number, total: number): Location {
+function location(page: number, total: number, offset = 0): Location {
   const point = {
     index: 0,
     href: 'book.xhtml',
-    cfi: cfi(0),
+    cfi: cfi(offset),
     location: 0,
     percentage: 0,
     displayed: { page, total },
   };
   return {
     start: point,
-    end: { ...point, cfi: cfi(100) },
+    end: { ...point, cfi: cfi(offset + 100) },
     atStart: false,
     atEnd: false,
   };
@@ -62,4 +62,14 @@ test('chapter repair preserves page metadata and legacy bookmarks remain readabl
     epubPageLabel({ location: cfi(1), label: 'Chapter one', progress: 10 }),
     '',
   );
+});
+
+test('a newly viewed EPUB page replaces the old resume location', () => {
+  const oldResume = positionForEpub(location(37, 120, 370), [], 1);
+  const latest = positionForEpub(location(45, 120, 450), [], 1);
+
+  assert.equal(oldResume.location, cfi(370));
+  assert.equal(latest.location, cfi(450));
+  assert.equal(latest.epubPage?.page, 45);
+  assert.notEqual(latest.location, oldResume.location);
 });

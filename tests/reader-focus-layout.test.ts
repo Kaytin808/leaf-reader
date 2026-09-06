@@ -6,10 +6,19 @@ const css = readFileSync(
   new URL('../app/product.css', import.meta.url),
   'utf8',
 );
+const nativeCss = readFileSync(
+  new URL('../mobile/native.css', import.meta.url),
+  'utf8',
+);
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+}
+
+function nativeRule(selector: string) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return nativeCss.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 }
 
 test('normal mode reserves toolbar rows and focus mode expands the reading viewport', () => {
@@ -50,4 +59,11 @@ test('normal mode reserves toolbar rows and focus mode expands the reading viewp
   const recoveryControl = rule('.reader-show-controls');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
   assert.doesNotMatch(recoveryControl, /\btop:/);
+});
+
+test('native reader toolbars do not apply safe-area padding twice', () => {
+  assert.match(nativeRule('.reader-header'), /padding-top:\s*10px/);
+  assert.match(nativeRule('.reader-bottom'), /padding-bottom:\s*7px/);
+  assert.doesNotMatch(nativeRule('.reader-header'), /safe-area-inset-top/);
+  assert.doesNotMatch(nativeRule('.reader-bottom'), /safe-area-inset-bottom/);
 });
