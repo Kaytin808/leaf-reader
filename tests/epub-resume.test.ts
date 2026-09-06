@@ -8,6 +8,7 @@ import {
 } from '../lib/epub-location';
 import { positionForEpub } from '../lib/chapters';
 import { addBook, updateBook, listBooks, deleteBook } from '../lib/library';
+import { EpubReflow, positionAfterReflow } from '../lib/epub-reflow';
 
 const cfi = (page: number) => `epubcfi(/6/2!/4/2/1:${page * 100})`;
 function at(page: number): Location {
@@ -26,6 +27,81 @@ function at(page: number): Location {
     atEnd: false,
   };
 }
+
+test('repeated focus transitions update page counters without moving the saved passage', async () => {
+  const id = 'focus-resume-cycle';
+  let position = positionForEpub(at(45), [], 1);
+  const original = structuredClone(position);
+  await addBook(
+    {
+      id,
+      title: 'Focus test',
+      author: 'Test',
+      filename: 'focus.epub',
+      format: 'epub',
+      size: 0,
+      addedAt: 1,
+      lastRead: 1,
+      position,
+      bookmarks: [],
+    },
+    new Blob(),
+  );
+  try {
+    const transition = new EpubReflow();
+    for (let i = 0; i < 10; i++) {
+      for (const page of [31, 45]) {
+        transition.begin(position);
+        const first = transition.snapshot()!;
+        // The animation briefly reports a different page; a newer viewport
+        // must supersede the old resize without adopting that interim anchor.
+        transition.begin(positionForEpub(at(37), [], 1));
+        assert.equal(transition.finish(first.revision), false);
+        const settled = transition.snapshot()!;
+        assert.equal(settled.anchor.location, original.location);
+        position = positionAfterReflow(at(page), settled.anchor, [], 1, 20);
+        assert.equal(transition.finish(settled.revision), true);
+        await updateBook(id, { position });
+        const saved = (await listBooks()).find((book) => book.id === id)!;
+        assert.equal(saved.position.location, original.location);
+        assert.equal(saved.position.progress, original.progress);
+        assert.equal(saved.position.epubPage?.page, page);
+      }
+    }
+  } finally {
+    await deleteBook(id);
+  }
+});
+
+test('reading ahead in focus becomes the anchor when returning to normal mode', () => {
+  const transition = new EpubReflow();
+  const normal = positionForEpub(at(45), [], 1);
+  transition.begin(normal);
+  const focus = transition.snapshot()!;
+  positionAfterReflow(at(31), focus.anchor, [], 1, 20);
+  transition.finish(focus.revision);
+  const advanced = positionForEpub(at(49), [], 1);
+  transition.begin(advanced);
+  const returning = transition.snapshot()!;
+  const restored = positionAfterReflow(at(51), returning.anchor, [], 1, 20);
+  assert.equal(restored.location, advanced.location);
+  assert.equal(restored.epubPage?.page, 51);
+  assert.notEqual(restored.location, normal.location);
+});
+
+test('fitting more text onto the final page does not mark the book complete', () => {
+  const anchor = positionForEpub(at(98), [], 1);
+  const fitted = positionAfterReflow(
+    { ...at(65), atEnd: true },
+    anchor,
+    [],
+    1,
+    20,
+  );
+  assert.equal(fitted.location, anchor.location);
+  assert.equal(fitted.progress, anchor.progress);
+  assert.ok(fitted.progress < 100);
+});
 
 test('location capture waits for its queued report instead of accepting an older relocation', async () => {
   const frames: FrameRequestCallback[] = [];

@@ -1,0 +1,50 @@
+import type { Location } from 'epubjs/types/rendition';
+import type { Position } from './library';
+import { positionForEpub, repairChapterLabel, type Chapter } from './chapters';
+
+// One anchor spans the whole animation, including rapid reversals. Each new
+// viewport invalidates an older asynchronous resize result.
+export class EpubReflow {
+  private anchor?: Position;
+  private revision = 0;
+
+  get pending() {
+    return !!this.anchor;
+  }
+
+  begin(position: Position) {
+    this.anchor ??= structuredClone(position);
+    return ++this.revision;
+  }
+
+  snapshot() {
+    return this.anchor
+      ? { anchor: this.anchor, revision: this.revision }
+      : undefined;
+  }
+
+  finish(revision: number) {
+    if (!this.anchor || revision !== this.revision) return false;
+    this.anchor = undefined;
+    return true;
+  }
+}
+
+export function positionAfterReflow(
+  location: Location,
+  anchor: Position,
+  chapters: Chapter[],
+  sections: number,
+  fontSize: number,
+): Position {
+  // Repagination changes screen-page numbers, not the passage or reading
+  // progress. In particular, fitting the last page is not finishing the book.
+  return repairChapterLabel(
+    {
+      ...positionForEpub(location, chapters, sections, undefined, fontSize),
+      location: anchor.location,
+      progress: anchor.progress,
+    },
+    chapters,
+  );
+}

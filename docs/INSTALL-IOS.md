@@ -56,6 +56,10 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
+  Focus transitions capture the passage before animation, ignore intermediate
+  page reports, and update screen-page counters only after the layout settles.
+  Page numbers can differ with the larger focus viewport; the passage and
+  reading progress stay fixed until you turn a page.
   Opening waits for the final viewport location before saving, and resize
   receives the same saved passage. Failed restoration leaves the saved place
   intact instead of silently opening and saving the beginning.

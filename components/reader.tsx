@@ -60,6 +60,7 @@ import {
 } from '@/lib/chapters';
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
+import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
   reportLatestLocation,
   restoreEpubLocation,
@@ -112,6 +113,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
+  const layoutReflow = useRef(new EpubReflow());
+  const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -148,6 +151,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
   const setReaderControls = useCallback((visible: boolean) => {
+    if (controlsVisibleRef.current === visible || navigationPending.current)
+      return;
+    if (epubReady.current) {
+      layoutReflow.current.begin(current.current);
+      setSaveState('Fitting page…');
+      // Also schedule when a quick reversal produces no ResizeObserver event.
+      scheduleLayout.current(400);
+    }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
     requestAnimationFrame(() =>
@@ -287,10 +298,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         setIsCompleted(completed.current);
         finishedReadingTime.current = updated.finishedReadingTimeMs;
         callback.current(updated);
-        setSaveState('Place saved');
+        if (current.current === normalized && !layoutReflow.current.pending)
+          setSaveState('Place saved');
       })
       .catch(() => {
-        setSaveState('Could not save — check storage');
+        if (current.current === normalized && !layoutReflow.current.pending)
+          setSaveState('Could not save — check storage');
       });
   }, []);
 
@@ -521,7 +534,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           if (reflowableEpub.current)
             r.themes.fontSize(`${settings.current.fontSize}px`);
           r.on('relocated', (loc: Location) => {
-            if (cancelled || !epubReady.current || navigationPending.current)
+            if (
+              cancelled ||
+              !epubReady.current ||
+              navigationPending.current ||
+              layoutReflow.current.pending
+            )
               return;
             setAtStart(loc.atStart);
             setAtEnd(loc.atEnd);
@@ -531,16 +549,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             });
             const requested = requestedCfi.current ?? current.current.location;
             requestedCfi.current = undefined;
-            save(
-              positionForEpub(
-                loc,
-                indexedChapters,
-                sectionCount,
-                requested,
-                settings.current.fontSize,
-              ),
-              loc.atEnd,
+            const next = positionForEpub(
+              loc,
+              indexedChapters,
+              sectionCount,
+              requested,
+              settings.current.fontSize,
             );
+            const moved = next.location !== current.current.location;
+            if (!moved) next.progress = current.current.progress;
+            save(next, moved && loc.atEnd);
           });
           r.on('displayError', () => {
             if (!cancelled)
@@ -648,7 +666,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const reflow = async () => {
       if (cancelled || rendition.current !== r) return;
       if (!epubReady.current) return;
-      if (navigationPending.current) {
+      if (navigationPending.current || layoutReflow.current.pending) {
         timer = setTimeout(() => void reflow(), 80);
         return;
       }
@@ -676,14 +694,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           setAtStart(reported.atStart);
           setAtEnd(reported.atEnd);
           save(
-            positionForEpub(
+            positionAfterReflow(
               reported,
+              current.current,
               chapterData.current,
               count,
-              previous,
               fontSize,
             ),
-            reported.atEnd,
           );
           requestedCfi.current = undefined;
         }
@@ -747,7 +764,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     if (book.format !== 'epub' || !mount.current) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    const observer = new ResizeObserver(() => {
+    const schedule = (delay = 160) => {
+      if (!epubReady.current) return;
+      layoutReflow.current.begin(current.current);
+      setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
         const area = mount.current;
@@ -758,7 +778,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
         }
-        const previous = current.current.location;
+        const snapshot = layoutReflow.current.snapshot();
+        if (!snapshot) return;
+        const { anchor, revision } = snapshot;
+        const previous = anchor.location;
         navigationPending.current = true;
         setTurning(true);
         try {
@@ -770,39 +793,47 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           );
           if (previous) await r.display(previous);
           const reported = await reportLatestLocation(r);
-          if (!cancelled && rendition.current === r) {
+          if (
+            !cancelled &&
+            rendition.current === r &&
+            layoutReflow.current.finish(revision)
+          ) {
             let sectionCount = 0;
             epub.current?.spine.each(() => sectionCount++);
             requestedCfi.current = previous;
             setAtStart(reported.atStart);
             setAtEnd(reported.atEnd);
             save(
-              positionForEpub(
+              positionAfterReflow(
                 reported,
+                anchor,
                 chapterData.current,
                 sectionCount,
-                previous,
                 settings.current.fontSize,
               ),
-              reported.atEnd,
             );
             requestedCfi.current = undefined;
           }
         } catch {
-          if (!cancelled)
+          if (!cancelled && layoutReflow.current.finish(revision)) {
+            setSaveState('Page fitting failed — place kept');
             setError(
               'The page could not be fitted to the screen. Your saved place is unchanged.',
             );
+          }
         } finally {
           navigationPending.current = false;
           if (!cancelled && rendition.current === r) setTurning(false);
         }
       };
-      timer = setTimeout(() => void resizeAtCurrentPage(), 160);
-    });
+      timer = setTimeout(() => void resizeAtCurrentPage(), delay);
+    };
+    scheduleLayout.current = schedule;
+    const observer = new ResizeObserver(() => schedule());
     observer.observe(mount.current);
     return () => {
       cancelled = true;
+      scheduleLayout.current = () => {};
       observer.disconnect();
       clearTimeout(timer);
     };
@@ -816,6 +847,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       panel ||
       picture ||
       navigationPending.current ||
+      layoutReflow.current.pending ||
       (direction < 0 && atStart) ||
       (direction > 0 && atEnd)
     )
@@ -889,7 +921,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       loading ||
       turning ||
       closing ||
-      navigationPending.current
+      navigationPending.current ||
+      layoutReflow.current.pending
     )
       return;
     try {
@@ -910,7 +943,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     }
   }
   async function goTo(location: string) {
-    if (navigationPending.current || closing) return;
+    if (navigationPending.current || layoutReflow.current.pending || closing)
+      return;
     if (document.visibilityState === 'visible' && !completed.current)
       readingClock.current.activity(Date.now());
     setError('');
@@ -970,7 +1004,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       requestedCfi.current = undefined;
   }
   async function closeReader() {
-    if (closing || turning || navigationPending.current) return;
+    if (
+      closing ||
+      turning ||
+      navigationPending.current ||
+      layoutReflow.current.pending
+    )
+      return;
     setClosing(true);
     flushReadingTime(true);
     try {
