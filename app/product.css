@@ -348,11 +348,11 @@ footer span {
   position: fixed;
   inset: 0;
   z-index: 10;
-  display: flex;
-  flex-direction: column;
+  display: block;
   background: white;
   color: #243349;
   height: 100dvh;
+  overflow: hidden;
 }
 .reader .icon-button {
   width: 44px;
@@ -360,6 +360,11 @@ footer span {
   height: 44px;
 }
 .reader-header {
+  position: absolute;
+  z-index: 25;
+  top: env(safe-area-inset-top);
+  right: 0;
+  left: 0;
   display: flex;
   align-items: center;
   gap: 18px;
@@ -367,14 +372,12 @@ footer span {
   padding: 12px 26px;
   min-height: 78px;
   background: inherit;
-  flex-shrink: 0;
-  max-height: 180px;
-  overflow: hidden;
+  transform: translateY(0);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   transition:
-    max-height 0.2s ease,
-    min-height 0.2s ease,
-    padding 0.2s ease,
-    opacity 0.16s ease;
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
 }
 .reader-book-title {
   min-width: 0;
@@ -402,9 +405,11 @@ footer span {
   gap: 6px;
 }
 .reading-area {
-  flex: 1;
+  position: absolute;
+  inset: calc(env(safe-area-inset-top) + 8px) 0
+    calc(env(safe-area-inset-bottom) + 6px);
+  width: 100%;
   min-height: 0;
-  position: relative;
 }
 .reading-area:focus-visible {
   outline-offset: -4px;
@@ -419,7 +424,7 @@ footer span {
 }
 .epub-area {
   overflow: hidden;
-  width: min(100%, 1000px);
+  max-width: 1000px;
   margin: auto;
 }
 .text-area {
@@ -521,38 +526,42 @@ footer span {
   background: #111b28;
 }
 .reader-bottom {
+  position: absolute;
+  z-index: 25;
+  right: 0;
+  bottom: env(safe-area-inset-bottom);
+  left: 0;
   padding: 0 28px 10px;
-  flex-shrink: 0;
   border-top: 1px solid #8999aa25;
   background: inherit;
-  max-height: 230px;
-  overflow: hidden;
+  transform: translateY(0);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
   transition:
-    max-height 0.2s ease,
-    padding 0.2s ease,
-    opacity 0.16s ease;
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.18s ease;
 }
-.reader-focus .reader-header,
-.reader-focus .reader-bottom {
-  min-height: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
+.reader-focus .reader-header {
+  transform: translateY(calc(-100% - env(safe-area-inset-top)));
   opacity: 0;
-  visibility: hidden;
+  pointer-events: none;
+}
+.reader-focus .reader-bottom {
+  transform: translateY(calc(100% + env(safe-area-inset-bottom)));
+  opacity: 0;
   pointer-events: none;
 }
 .reader-show-controls {
   position: absolute;
   z-index: 30;
-  top: max(10px, env(safe-area-inset-top));
   right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 44px;
   min-height: 44px;
-  padding: 0 13px;
+  padding: 0;
   border: 1px solid #8292a866;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 10%, transparent);
@@ -657,6 +666,11 @@ footer span {
   font-size: 15px;
 }
 .reader-error {
+  position: absolute;
+  z-index: 40;
+  top: calc(env(safe-area-inset-top) + 8px);
+  right: 8px;
+  left: 8px;
   padding: 12px 24px;
   display: flex;
   justify-content: space-between;
@@ -664,6 +678,7 @@ footer span {
   font-size: 14px;
   color: #903c34;
   background: #ffefeb;
+  border-radius: 8px;
 }
 .reader-error .icon-button {
   margin-left: 12px;

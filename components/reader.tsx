@@ -690,23 +690,61 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
 
   useEffect(() => {
     if (book.format !== 'epub' || !mount.current) return;
+    let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const observer = new ResizeObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (mount.current && rendition.current)
-          rendition.current.resize(
-            mount.current.clientWidth,
-            mount.current.clientHeight,
-          );
-      }, 150);
+      const resizeAtCurrentPage = async () => {
+        const area = mount.current;
+        const r = rendition.current;
+        if (cancelled || !area || !r) return;
+        if (navigationPending.current) {
+          timer = setTimeout(() => void resizeAtCurrentPage(), 80);
+          return;
+        }
+        const previous = current.current.location;
+        navigationPending.current = true;
+        setTurning(true);
+        try {
+          r.resize(area.clientWidth, area.clientHeight);
+          if (previous) await r.display(previous);
+          const reported = await reportLatestLocation(r);
+          if (!cancelled && rendition.current === r) {
+            let sectionCount = 0;
+            epub.current?.spine.each(() => sectionCount++);
+            requestedCfi.current = previous;
+            setAtStart(reported.atStart);
+            setAtEnd(reported.atEnd);
+            save(
+              positionForEpub(
+                reported,
+                chapterData.current,
+                sectionCount,
+                previous,
+                settings.current.fontSize,
+              ),
+              reported.atEnd,
+            );
+          }
+        } catch {
+          if (!cancelled)
+            setError(
+              'The page could not be fitted to the screen. Your saved place is unchanged.',
+            );
+        } finally {
+          navigationPending.current = false;
+          if (!cancelled && rendition.current === r) setTurning(false);
+        }
+      };
+      timer = setTimeout(() => void resizeAtCurrentPage(), 160);
     });
     observer.observe(mount.current);
     return () => {
+      cancelled = true;
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [book.format]);
+  }, [book.format, save]);
 
   async function turn(direction: -1 | 1) {
     if (
@@ -976,7 +1014,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           onClick={() => setReaderControls(true)}
         >
           <Eye size={18} />
-          <span>Controls</span>
+          <span className="sr-only">Controls</span>
         </button>
       )}
       {error && (
