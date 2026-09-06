@@ -394,6 +394,14 @@ footer span {
   min-height: 0;
   position: relative;
 }
+.reading-dimmer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #000;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
 .epub-area {
   overflow: hidden;
   width: min(100%, 1000px);
@@ -649,6 +657,21 @@ footer span {
 .settings-list [data-slot='select-trigger'] {
   min-width: 140px;
 }
+.brightness-control {
+  display: grid;
+  gap: 13px;
+}
+.brightness-control > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  font-size: 14px;
+}
+.brightness-control output {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
 .chapter-list,
 .bookmark-list {
   max-height: 55dvh;
@@ -833,6 +856,13 @@ footer span {
   }
   .settings-note {
     font-size: 12px;
+  }
+  .settings-list > label,
+  .setting-row {
+    gap: 12px;
+  }
+  .settings-list [data-slot='select-trigger'] {
+    min-width: 128px;
   }
 }
 @media (max-width: 370px) {

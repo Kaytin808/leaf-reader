@@ -33,6 +33,7 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import { Slider } from '@/components/ui/slider';
 import {
   getFile,
   updateBook,
@@ -55,13 +56,24 @@ import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
 import { version } from '@/package.json';
 import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
+import {
+  DEFAULT_READING_PREFERENCES,
+  FONT_STACKS,
+  LINE_HEIGHTS,
+  PAGE_MARGINS,
+  normalizeReadingPreferences,
+  type ReadingAlignment,
+  type ReadingFont,
+  type ReadingMargin,
+  type ReadingSpacing,
+  type ReadingTheme,
+} from '@/lib/reading-settings';
 
 type Props = {
   book: LibraryBook;
   onClose: () => void;
   onUpdate: (book: LibraryBook) => void;
 };
-type Theme = 'paper' | 'sepia' | 'night';
 // EPUB.js resolves display/reportLocation before the animation-frame relocation event.
 function reportLatestLocation(r: Rendition) {
   return new Promise<Location>((resolve, reject) => {
@@ -96,6 +108,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [onUpdate]);
   const mount = useRef<HTMLDivElement>(null);
   const epub = useRef<Book | null>(null);
+  const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
@@ -113,8 +126,25 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [panel, setPanel] = useState<
     'settings' | 'bookmarks' | 'chapters' | null
   >(null);
-  const [theme, setTheme] = useState<Theme>('paper');
-  const [fontSize, setFontSize] = useState(20);
+  const [theme, setTheme] = useState<ReadingTheme>('paper');
+  const [fontSize, setFontSize] = useState(
+    DEFAULT_READING_PREFERENCES.fontSize,
+  );
+  const [font, setFont] = useState<ReadingFont>(
+    DEFAULT_READING_PREFERENCES.font,
+  );
+  const [spacing, setSpacing] = useState<ReadingSpacing>(
+    DEFAULT_READING_PREFERENCES.spacing,
+  );
+  const [margin, setMargin] = useState<ReadingMargin>(
+    DEFAULT_READING_PREFERENCES.margin,
+  );
+  const [alignment, setAlignment] = useState<ReadingAlignment>(
+    DEFAULT_READING_PREFERENCES.alignment,
+  );
+  const [brightness, setBrightness] = useState(
+    DEFAULT_READING_PREFERENCES.brightness,
+  );
   const [zoom, setZoom] = useState(1);
   const [zoomReset, setZoomReset] = useState(0);
   function changeZoom(value: number) {
@@ -143,13 +173,28 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     loading || turning || closing || !!panel || !!picture;
   const requestedCfi = useRef<string | undefined>(undefined);
   const navigationPending = useRef(false);
+  const previousAppTheme = useRef(appTheme.theme);
+  const storedReaderTheme = useRef(false);
   useEffect(() => {
-    if (appTheme.ready) setTheme(appTheme.theme === 'dark' ? 'night' : 'paper');
+    if (
+      appTheme.ready &&
+      (!storedReaderTheme.current ||
+        previousAppTheme.current !== appTheme.theme)
+    )
+      setTheme(appTheme.theme === 'dark' ? 'night' : 'paper');
+    previousAppTheme.current = appTheme.theme;
   }, [appTheme.theme, appTheme.ready]);
-  const settings = useRef({ theme, fontSize });
+  const settings = useRef({
+    theme,
+    fontSize,
+    font,
+    spacing,
+    margin,
+    alignment,
+  });
   useEffect(() => {
-    settings.current = { theme, fontSize };
-  }, [theme, fontSize]);
+    settings.current = { theme, fontSize, font, spacing, margin, alignment };
+  }, [theme, fontSize, font, spacing, margin, alignment]);
   const save = useCallback((next: Position, reachedEnd = false) => {
     const now = Date.now();
     const normalized = {
@@ -262,11 +307,21 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(
+      const raw = JSON.parse(
         localStorage.getItem('leaf-reading-settings') || '{}',
       );
-      if (saved.fontSize >= 14 && saved.fontSize <= 32)
-        setFontSize(saved.fontSize);
+      storedReaderTheme.current =
+        raw &&
+        typeof raw === 'object' &&
+        ['paper', 'sepia', 'night'].includes(raw.theme);
+      const saved = normalizeReadingPreferences(raw);
+      setTheme(saved.theme);
+      setFontSize(saved.fontSize);
+      setFont(saved.font);
+      setSpacing(saved.spacing);
+      setMargin(saved.margin);
+      setAlignment(saved.alignment);
+      setBrightness(saved.brightness);
     } catch {
       /* Optional preferences. */
     }
@@ -343,6 +398,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           epub.current = localBook;
           await localBook.open(bytes, 'binary');
           await localBook.ready;
+          reflowableEpub.current =
+            localBook.packaging.metadata.layout !== 'pre-paginated';
           if (cancelled || !mount.current) return;
           const indexedChapters = await chapterIndex(localBook);
           if (cancelled || !mount.current) return;
@@ -385,16 +442,37 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             }
           });
           const colors = palette[settings.current.theme];
+          const typography = reflowableEpub.current
+            ? {
+                'font-family': `${FONT_STACKS[settings.current.font]} !important`,
+                'line-height': `${LINE_HEIGHTS[settings.current.spacing]} !important`,
+                'text-align': `${settings.current.alignment} !important`,
+                'padding-left': `${PAGE_MARGINS[settings.current.margin]}px !important`,
+                'padding-right': `${PAGE_MARGINS[settings.current.margin]}px !important`,
+                'margin-left': '0 !important',
+                'margin-right': '0 !important',
+                'box-sizing': 'border-box !important',
+              }
+            : {};
           r.themes.default({
             body: {
               color: `${colors.fg} !important`,
               background: `${colors.bg} !important`,
-              'font-family': 'Georgia, serif !important',
-              'line-height': '1.7 !important',
+              ...typography,
             },
-            p: { 'font-size': 'inherit !important' },
+            ...(reflowableEpub.current
+              ? {
+                  p: {
+                    'font-size': 'inherit !important',
+                    'font-family': 'inherit !important',
+                    'line-height': 'inherit !important',
+                    'text-align': 'inherit !important',
+                  },
+                }
+              : {}),
           });
-          r.themes.fontSize(`${settings.current.fontSize}px`);
+          if (reflowableEpub.current)
+            r.themes.fontSize(`${settings.current.fontSize}px`);
           r.on('relocated', (loc: Location) => {
             if (cancelled || navigationPending.current) return;
             setAtStart(loc.atStart);
@@ -471,11 +549,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     try {
       localStorage.setItem(
         'leaf-reading-settings',
-        JSON.stringify({ theme, fontSize }),
+        JSON.stringify({
+          theme,
+          fontSize,
+          font,
+          spacing,
+          margin,
+          alignment,
+          brightness,
+        }),
       );
     } catch {
       /* Reading still works without preferences. */
     }
+  }, [theme, fontSize, font, spacing, margin, alignment, brightness]);
+
+  useEffect(() => {
     const r = rendition.current;
     if (!r) return;
     let cancelled = false;
@@ -492,7 +581,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       try {
         r.themes.override('color', palette[theme].fg, true);
         r.themes.override('background', palette[theme].bg, true);
-        r.themes.fontSize(`${fontSize}px`);
+        if (reflowableEpub.current) {
+          r.themes.override('font-family', FONT_STACKS[font], true);
+          r.themes.override('line-height', String(LINE_HEIGHTS[spacing]), true);
+          r.themes.override('text-align', alignment, true);
+          r.themes.override('padding-left', `${PAGE_MARGINS[margin]}px`, true);
+          r.themes.override('padding-right', `${PAGE_MARGINS[margin]}px`, true);
+          r.themes.fontSize(`${fontSize}px`);
+        }
         if (previous) await r.display(previous);
         const reported = await reportLatestLocation(r);
         if (!cancelled) {
@@ -528,7 +624,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [theme, fontSize, save]);
+  }, [theme, fontSize, font, spacing, margin, alignment, save]);
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
@@ -844,13 +940,28 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           />
         )}
         {book.format === 'txt' && !loading && (
-          <article className="text-page" style={{ fontSize }}>
+          <article
+            className="text-page"
+            style={{
+              fontSize,
+              fontFamily: FONT_STACKS[font],
+              lineHeight: LINE_HEIGHTS[spacing],
+              paddingLeft: PAGE_MARGINS[margin],
+              paddingRight: PAGE_MARGINS[margin],
+              textAlign: alignment,
+            }}
+          >
             <p className="chapter-kicker">{book.title}</p>
             {textPages[page - 1]?.split(/\n\n+/).map((paragraph, i) => (
               <p key={i}>{paragraph}</p>
             ))}
           </article>
         )}
+        <div
+          className="reading-dimmer"
+          style={{ opacity: (100 - brightness) / 100 }}
+          aria-hidden="true"
+        />
       </div>
       {loading && !error && (
         <output className="reader-loading">
@@ -966,7 +1077,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   value={theme}
                   onValueChange={(value) => {
                     if (value) {
-                      setTheme(value as Theme);
+                      setTheme(value as ReadingTheme);
                       if (value !== 'sepia')
                         appTheme.setTheme(value === 'night' ? 'dark' : 'light');
                     }
@@ -982,32 +1093,132 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   </SelectContent>
                 </Select>
               </label>
-              {book.format !== 'pdf' ? (
-                <div className="setting-row">
-                  <span>Text size</span>
-                  <div>
-                    <button
-                      className="icon-button"
-                      disabled={fontSize <= 14}
-                      aria-label="Smaller text"
-                      onClick={() => setFontSize((s) => s - 2)}
+              {book.format !== 'pdf' &&
+              (book.format !== 'epub' || reflowableEpub.current) ? (
+                <>
+                  <label htmlFor="reading-font">
+                    Font style
+                    <Select
+                      value={font}
+                      onValueChange={(value) =>
+                        value && setFont(value as ReadingFont)
+                      }
                     >
-                      <Minus size={17} />
-                    </button>
-                    <span>{fontSize}px</span>
-                    <button
-                      className="icon-button"
-                      disabled={fontSize >= 32}
-                      aria-label="Larger text"
-                      onClick={() => setFontSize((s) => s + 2)}
-                    >
-                      <Plus size={17} />
-                    </button>
+                      <SelectTrigger id="reading-font">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="book">Book serif</SelectItem>
+                        <SelectItem value="classic">Classic</SelectItem>
+                        <SelectItem value="sans">Modern sans</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <div className="setting-row">
+                    <span>Text size</span>
+                    <div>
+                      <button
+                        className="icon-button"
+                        disabled={fontSize <= 14}
+                        aria-label="Smaller text"
+                        onClick={() => setFontSize((size) => size - 2)}
+                      >
+                        <Minus size={17} />
+                      </button>
+                      <span>{fontSize}px</span>
+                      <button
+                        className="icon-button"
+                        disabled={fontSize >= 32}
+                        aria-label="Larger text"
+                        onClick={() => setFontSize((size) => size + 2)}
+                      >
+                        <Plus size={17} />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                  <label htmlFor="line-spacing">
+                    Line spacing
+                    <Select
+                      value={spacing}
+                      onValueChange={(value) =>
+                        value && setSpacing(value as ReadingSpacing)
+                      }
+                    >
+                      <SelectTrigger id="line-spacing">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="compact">Compact</SelectItem>
+                        <SelectItem value="comfortable">Comfortable</SelectItem>
+                        <SelectItem value="airy">Airy</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label htmlFor="page-margins">
+                    Page margins
+                    <Select
+                      value={margin}
+                      onValueChange={(value) =>
+                        value && setMargin(value as ReadingMargin)
+                      }
+                    >
+                      <SelectTrigger id="page-margins">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="narrow">Narrow</SelectItem>
+                        <SelectItem value="standard">Standard</SelectItem>
+                        <SelectItem value="wide">Wide</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                  <label htmlFor="text-alignment">
+                    Text alignment
+                    <Select
+                      value={alignment}
+                      onValueChange={(value) =>
+                        value && setAlignment(value as ReadingAlignment)
+                      }
+                    >
+                      <SelectTrigger id="text-alignment">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="left">Left</SelectItem>
+                        <SelectItem value="justify">Justified</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </label>
+                </>
               ) : (
-                <ZoomControls zoom={zoom} onChange={changeZoom} />
+                book.format === 'pdf' && (
+                  <ZoomControls zoom={zoom} onChange={changeZoom} />
+                )
               )}
+              {book.format === 'epub' && !reflowableEpub.current && (
+                <p className="settings-note">
+                  This illustrated EPUB uses a fixed page design, so its fonts,
+                  spacing, and margins stay unchanged.
+                </p>
+              )}
+              <div className="brightness-control">
+                <div>
+                  <span>Page brightness</span>
+                  <output>{brightness}%</output>
+                </div>
+                <Slider
+                  aria-label="Page brightness"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={[brightness]}
+                  onValueChange={(value) =>
+                    setBrightness(
+                      (Array.isArray(value) ? value[0] : value) ?? 100,
+                    )
+                  }
+                />
+              </div>
               <p className="settings-note">
                 {book.format === 'pdf'
                   ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; the arrow buttons always work.'
