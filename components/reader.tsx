@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Book, Rendition } from 'epubjs';
 import type { Location } from 'epubjs/types/rendition';
+import type Contents from 'epubjs/types/contents';
 import type { PDFDocumentProxy, PDFDocumentLoadingTask } from 'pdfjs-dist';
 import {
   ArrowLeft,
@@ -46,6 +47,8 @@ import {
   type Chapter,
 } from '@/lib/chapters';
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
+import { bindReaderTaps } from '@/lib/reader-gestures';
+import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 
 type Props = {
   book: LibraryBook;
@@ -106,11 +109,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [theme, setTheme] = useState<Theme>('paper');
   const [fontSize, setFontSize] = useState(20);
   const [zoom, setZoom] = useState(1);
+  const [zoomReset, setZoomReset] = useState(0);
+  function changeZoom(value: number) {
+    setZoom(value);
+    if (value === 1) setZoomReset((key) => key + 1);
+  }
+  const [picture, setPicture] = useState<{ src: string; alt: string } | null>(
+    null,
+  );
+  const interaction = useRef({ blocked: true });
   const [pageInput, setPageInput] = useState('');
   const [atStart, setAtStart] = useState(false);
   const [atEnd, setAtEnd] = useState(false);
   const [turning, setTurning] = useState(false);
   const [closing, setClosing] = useState(false);
+  interaction.current.blocked =
+    loading || turning || closing || !!panel || !!picture;
   const requestedCfi = useRef<string | undefined>(undefined);
   const navigationPending = useRef(false);
   useEffect(() => {
@@ -156,6 +170,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let cancelled = false;
     let loadingTask: PDFDocumentLoadingTask | undefined;
     let localBook: Book | undefined;
+    const contentListeners = new Map<Contents, () => void>();
     const timer = setTimeout(() => {
       if (!cancelled)
         setError(
@@ -238,6 +253,33 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             allowScriptedContent: false,
           });
           rendition.current = r;
+          r.hooks.content.register((contents: Contents) => {
+            const doc = contents.document;
+            contentListeners.set(
+              contents,
+              bindReaderTaps(doc, {
+                enabled: () => !interaction.current.blocked,
+                bounds: () => {
+                  // A paginated EPUB iframe can be wider than the visible page.
+                  const frame =
+                    contents.window.frameElement?.getBoundingClientRect();
+                  const area = mount.current?.getBoundingClientRect();
+                  return {
+                    left: (area?.left ?? 0) - (frame?.left ?? 0),
+                    width: area?.width ?? contents.window.innerWidth,
+                  };
+                },
+                turn: (direction) => void turnRef.current(direction),
+                image: (image) => setPicture(image),
+              }),
+            );
+          });
+          r.hooks.unloaded.register((view: { contents?: Contents }) => {
+            if (view.contents) {
+              contentListeners.get(view.contents)?.();
+              contentListeners.delete(view.contents);
+            }
+          });
           const colors = palette[settings.current.theme];
           r.themes.default({
             body: {
@@ -273,6 +315,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               );
           });
           r.on('keydown', (event: KeyboardEvent) => {
+            if (interaction.current.blocked) return;
             if (event.key === 'ArrowRight') {
               event.preventDefault();
               void turnRef.current(1);
@@ -302,6 +345,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      for (const dispose of contentListeners.values()) dispose();
+      contentListeners.clear();
       rendition.current = null;
       epub.current = null;
       pdf.current = null;
@@ -349,63 +394,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [page, total, loading, book.format, save]);
 
   useEffect(() => {
-    if (book.format !== 'pdf' || !pdf.current || !mount.current || loading)
-      return;
-    const container = mount.current;
-    let cancelled = false;
-    let renderTask:
-      | { cancel: () => void; promise: Promise<unknown> }
-      | undefined;
-    let resizeTimer: ReturnType<typeof setTimeout>;
-    const render = async () => {
-      try {
-        if (!pdf.current) return;
-        const documentPage = await pdf.current.getPage(page);
-        if (cancelled) return;
-        renderTask?.cancel();
-        const base = documentPage.getViewport({ scale: 1 });
-        const width = Math.min(container.clientWidth - 32, 920) * zoom;
-        const viewport = documentPage.getViewport({
-          scale: width / base.width,
-        });
-        const pixelRatio = Math.min(
-          window.devicePixelRatio || 1,
-          2,
-          Math.sqrt(12000000 / (viewport.width * viewport.height)),
-        );
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.floor(viewport.width * pixelRatio);
-        canvas.height = Math.floor(viewport.height * pixelRatio);
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-        canvas.setAttribute('aria-label', `Page ${page} of ${total}`);
-        canvas.setAttribute('role', 'img');
-        container.replaceChildren(canvas);
-        renderTask = documentPage.render({
-          canvas,
-          viewport,
-          transform:
-            pixelRatio !== 1 ? [pixelRatio, 0, 0, pixelRatio, 0, 0] : undefined,
-        });
-        await renderTask.promise;
-      } catch (e) {
-        if (!cancelled && (e as Error).name !== 'RenderingCancelledException')
-          setError('This PDF page could not be rendered. Try another page.');
-      }
-    };
-    const observer = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => void render(), 120);
+    if (book.format !== 'txt' || !mount.current) return;
+    const area = mount.current;
+    return bindReaderTaps(area, {
+      enabled: () => !interaction.current.blocked,
+      bounds: () => area.getBoundingClientRect(),
+      turn: (direction) => void turnRef.current(direction),
     });
-    observer.observe(container);
-    void render();
-    return () => {
-      cancelled = true;
-      observer.disconnect();
-      clearTimeout(resizeTimer);
-      renderTask?.cancel();
-    };
-  }, [page, total, loading, zoom, book.format]);
+  }, [book.format]);
 
   useEffect(() => {
     if (book.format !== 'epub' || !mount.current) return;
@@ -428,7 +424,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [book.format]);
 
   async function turn(direction: -1 | 1) {
-    if (loading || turning || closing || navigationPending.current) return;
+    if (
+      loading ||
+      turning ||
+      closing ||
+      panel ||
+      picture ||
+      navigationPending.current ||
+      (direction < 0 && atStart) ||
+      (direction > 0 && atEnd)
+    )
+      return;
     setError('');
     requestedCfi.current = undefined;
     if (book.format === 'epub') {
@@ -459,6 +465,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const handle = (event: KeyboardEvent) => {
       if (
         panel ||
+        picture ||
+        (zoom > 1 &&
+          event.target instanceof Element &&
+          event.target.closest('.zoom-viewport')) ||
         (event.target instanceof HTMLElement &&
           ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(
             event.target.tagName,
@@ -476,7 +486,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     };
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [panel]);
+  }, [panel, picture, zoom]);
 
   const marked = book.bookmarks.some(
     (mark) => mark.location === position.location,
@@ -625,6 +635,20 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         ref={mount}
         style={{ background: palette[theme].bg, color: palette[theme].fg }}
       >
+        {book.format === 'pdf' && !loading && pdf.current && (
+          <PdfPage
+            resetKey={zoomReset}
+            key={page}
+            document={pdf.current}
+            page={page}
+            zoom={zoom}
+            onZoom={setZoom}
+            onTurn={(direction) => {
+              if (!interaction.current.blocked) void turnRef.current(direction);
+            }}
+            onError={setError}
+          />
+        )}
         {book.format === 'txt' && !loading && (
           <article className="text-page" style={{ fontSize }}>
             <p className="chapter-kicker">{book.title}</p>
@@ -642,6 +666,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       )}
       <div className="reader-bottom">
         <Progress aria-label="Reading progress" value={position.progress} />
+        {book.format === 'pdf' && !loading && (
+          <ZoomControls zoom={zoom} onChange={changeZoom} />
+        )}
         <div className="reader-navigation">
           <button
             className="icon-button"
@@ -769,33 +796,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="setting-row">
-                  <span>PDF zoom</span>
-                  <div>
-                    <button
-                      className="icon-button"
-                      disabled={zoom <= 0.75}
-                      aria-label="Zoom out"
-                      onClick={() => setZoom((s) => s - 0.25)}
-                    >
-                      <Minus size={17} />
-                    </button>
-                    <span>{Math.round(zoom * 100)}%</span>
-                    <button
-                      className="icon-button"
-                      disabled={zoom >= 2.5}
-                      aria-label="Zoom in"
-                      onClick={() => setZoom((s) => s + 0.25)}
-                    >
-                      <Plus size={17} />
-                    </button>
-                  </div>
-                </div>
+                <ZoomControls zoom={zoom} onChange={changeZoom} />
               )}
               <p className="settings-note">
                 {book.format === 'pdf'
-                  ? 'PDF pages keep their original colors and layout.'
-                  : 'Your reading position stays anchored when you resize the text.'}
+                  ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; the arrow buttons always work.'
+                  : 'Tap the left or right side to turn a page; the center stays still. Tap EPUB illustrations to enlarge them. Your place stays saved.'}
               </p>
             </div>
           )}
@@ -864,6 +870,23 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 </p>
               )}
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={picture !== null}
+        onOpenChange={(open) => {
+          if (!open) setPicture(null);
+        }}
+      >
+        <DialogContent className="image-zoom-dialog">
+          <DialogTitle>Illustration</DialogTitle>
+          <DialogDescription>
+            Pinch or use + to zoom. Drag to explore. Closing returns to the same
+            page.
+          </DialogDescription>
+          {picture && (
+            <ImagePage key={picture.src} src={picture.src} alt={picture.alt} />
           )}
         </DialogContent>
       </Dialog>

@@ -32,6 +32,15 @@ Picker** in Leaf's app-specific LiveContainer settings. See the
 
 ## Your library and updates
 
+- Tap the left/right side of a reading page to go back/forward. The middle
+  stays still; links, long-press selection, dragging, and multi-touch do not turn pages.
+- PDF: pinch or use the zoom buttons (100–400%). Drag to pan; **Fit width**
+  returns to the fitted page and resets its position. Side taps are disabled
+  above 100% so you can explore safely; the arrow buttons still change pages.
+- EPUB: tap an embedded illustration or map to open its separate zoom view.
+  Pinch or use the buttons, then close to return to the same reading position.
+  Illustrations inside links keep their original link behavior.
+
 - Import books again on the iPhone: the desktop browser's library does not sync.
 - EPUB/PDF/TXT files, bookmarks, reading position, and successful cover lookups
   are saved in Leaf's local WebView storage.

@@ -1,6 +1,6 @@
 {
   "name": "leaf-reader",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -20,7 +20,7 @@
     "ios:assets": "node scripts/generate-ios-assets.mjs",
     "verify:mobile": "tsx scripts/verify-mobile.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
-    "lint": "oxlint app components/reader.tsx components/theme-provider.tsx lib mobile scripts capacitor.config.ts vite.mobile.config.ts",
+    "lint": "oxlint app components/reader.tsx components/zoom-reader.tsx components/theme-provider.tsx lib mobile scripts capacitor.config.ts vite.mobile.config.ts",
     "format": "oxfmt"
   },
   "dependencies": {
