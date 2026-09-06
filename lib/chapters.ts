@@ -147,6 +147,7 @@ export function positionForEpub(
   chapters: Chapter[],
   sectionCount: number,
   requestedCfi?: string,
+  fontSize?: number,
 ): Position {
   const includesTarget =
     requestedCfi &&
@@ -165,5 +166,24 @@ export function positionForEpub(
             100,
         ),
       );
-  return repairChapterLabel({ location, progress, label: '' }, chapters);
+  const total = Math.max(1, Math.round(loc.start.displayed.total) || 1);
+  const page = Math.max(
+    1,
+    Math.min(total, Math.round(loc.start.displayed.page) || 1),
+  );
+  return repairChapterLabel(
+    {
+      location,
+      progress,
+      label: '',
+      epubPage: {
+        page,
+        total,
+        section: loc.start.index + 1,
+        sections: Math.max(1, sectionCount),
+        fontSize,
+      },
+    },
+    chapters,
+  );
 }

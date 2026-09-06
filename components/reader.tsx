@@ -36,6 +36,7 @@ import {
   getFile,
   updateBook,
   errorMessage,
+  epubPageLabel,
   type LibraryBook,
   type Position,
 } from '@/lib/library';
@@ -103,6 +104,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [total, setTotal] = useState(0);
   const [textPages, setTextPages] = useState<string[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const chapterData = useRef<Chapter[]>([]);
   const [panel, setPanel] = useState<
     'settings' | 'bookmarks' | 'chapters' | null
   >(null);
@@ -244,6 +246,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const indexedChapters = await chapterIndex(localBook);
           if (cancelled || !mount.current) return;
           setChapters(indexedChapters);
+          chapterData.current = indexedChapters;
           requestedCfi.current = initial.current.position.location || undefined;
           const r = localBook.renderTo(mount.current, {
             width: '100%',
@@ -305,6 +308,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 indexedChapters,
                 sectionCount,
                 requestedCfi.current,
+                settings.current.fontSize,
               ),
             );
           });
@@ -371,14 +375,57 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       /* Reading still works without preferences. */
     }
     const r = rendition.current;
-    if (r) {
+    if (!r) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const reflow = async () => {
+      if (cancelled || rendition.current !== r) return;
+      if (navigationPending.current) {
+        timer = setTimeout(() => void reflow(), 80);
+        return;
+      }
+      navigationPending.current = true;
+      setTurning(true);
       const previous = current.current.location;
-      r.themes.override('color', palette[theme].fg, true);
-      r.themes.override('background', palette[theme].bg, true);
-      r.themes.fontSize(`${fontSize}px`);
-      if (previous) void r.display(previous).catch(() => {});
-    }
-  }, [theme, fontSize]);
+      try {
+        r.themes.override('color', palette[theme].fg, true);
+        r.themes.override('background', palette[theme].bg, true);
+        r.themes.fontSize(`${fontSize}px`);
+        if (previous) await r.display(previous);
+        const reported = await reportLatestLocation(r);
+        if (!cancelled) {
+          let count = 0;
+          epub.current?.spine.each(() => count++);
+          requestedCfi.current = previous;
+          setAtStart(reported.atStart);
+          setAtEnd(reported.atEnd);
+          save(
+            positionForEpub(
+              reported,
+              chapterData.current,
+              count,
+              previous,
+              fontSize,
+            ),
+          );
+        }
+      } catch {
+        if (!cancelled)
+          setError(
+            'Could not finish resizing the text. Try adjusting the text size again.',
+          );
+      } finally {
+        navigationPending.current = false;
+        if (rendition.current === r) setTurning(false);
+      }
+    };
+    // Coalesce rapid size changes and only save the final, repaginated location.
+    timer = setTimeout(() => void reflow(), 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [theme, fontSize, save]);
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
@@ -532,6 +579,23 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const reported = await reportLatestLocation(rendition.current);
         persistEpubLocation(reported, requestedCfi.current);
         await writeQueue.current;
+        const details = current.current.epubPage;
+        if (
+          details &&
+          book.bookmarks.some(
+            (mark) => mark.location === location && !mark.epubPage,
+          )
+        ) {
+          callback.current(
+            await updateBook(book.id, (stored) => ({
+              bookmarks: stored.bookmarks.map((mark) =>
+                mark.location === location && !mark.epubPage
+                  ? { ...mark, epubPage: details }
+                  : mark,
+              ),
+            })),
+          );
+        }
       } else setPage(Math.max(1, Math.min(total, Number(location) || 1)));
     } catch {
       setError('This saved location could not be opened.');
@@ -545,7 +609,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     epub.current?.spine.each(() => sectionCount++);
     setAtStart(location.atStart);
     setAtEnd(location.atEnd);
-    save(positionForEpub(location, chapters, sectionCount, target));
+    save(
+      positionForEpub(
+        location,
+        chapters,
+        sectionCount,
+        target,
+        settings.current.fontSize,
+      ),
+    );
   }
   async function closeReader() {
     if (closing || turning || navigationPending.current) return;
@@ -703,7 +775,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 </button>
               </form>
             ) : (
-              <span>{loading ? 'Getting ready' : position.label}</span>
+              <>
+                <span>{loading ? 'Getting ready' : position.label}</span>
+                <span className="epub-page-counter">
+                  {loading
+                    ? 'Calculating pages…'
+                    : epubPageLabel(position) ||
+                      'Page details appear after opening this section'}
+                </span>
+              </>
             )}
             <small>
               <Check size={12} />
@@ -803,6 +883,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; the arrow buttons always work.'
                   : 'Tap the left or right side to turn a page; the center stays still. Tap EPUB illustrations to enlarge them. Your place stays saved.'}
               </p>
+              {book.format === 'epub' && (
+                <p className="settings-note">
+                  EPUB screen pages are counted within each book section, not a
+                  printed edition. Larger text creates more pages. Bookmarks
+                  return to the exact passage even when page numbers change.
+                </p>
+              )}
             </div>
           )}
           {panel === 'chapters' && (
@@ -839,6 +926,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                       <BookmarkIcon size={17} />
                       <span>
                         {mark.label}
+                        {mark.epubPage && (
+                          <small>
+                            {epubPageLabel(mark)}
+                            {mark.epubPage.fontSize
+                              ? ` · ${mark.epubPage.fontSize}px text`
+                              : ''}
+                          </small>
+                        )}
                         <small>{mark.progress}% through</small>
                       </span>
                     </button>

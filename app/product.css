@@ -541,6 +541,14 @@ footer span {
     13px Arial,
     sans-serif;
 }
+.reading-position .epub-page-counter {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 20px;
+  margin-top: 3px;
+  white-space: normal;
+}
 .text-button {
   color: inherit;
   font-size: 12px;

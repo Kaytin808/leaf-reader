@@ -7,7 +7,23 @@ export type Position = {
   label: string;
   chapterHref?: string;
   chapterCfi?: string;
+  epubPage?: {
+    page: number;
+    total: number;
+    section: number;
+    sections: number;
+    fontSize?: number;
+  };
 };
+export function epubPageLabel(position: Position) {
+  const page = position.epubPage;
+  if (!page) return '';
+  return `Page ${page.page} of ${page.total}${page.sections > 1 ? ` · section ${page.section} of ${page.sections}` : ''}`;
+}
+export function positionLabel(position: Position) {
+  const page = epubPageLabel(position);
+  return page ? `${position.label} · ${page}` : position.label;
+}
 export type Bookmark = Position & { id: string; createdAt: number };
 export type LibraryBook = {
   id: string;

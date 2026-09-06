@@ -40,6 +40,10 @@ Picker** in Leaf's app-specific LiveContainer settings. See the
 - EPUB: tap an embedded illustration or map to open its separate zoom view.
   Pinch or use the buttons, then close to return to the same reading position.
   Illustrations inside links keep their original link behavior.
+- EPUB page counters show screen pages within the current book section, even
+  without a chapter list. They recalculate when text size changes. New bookmarks
+  include the page/section and text size when saved, but always reopen the exact
+  passage. These are not print-edition page numbers or whole-book page totals.
 
 - Import books again on the iPhone: the desktop browser's library does not sync.
 - EPUB/PDF/TXT files, bookmarks, reading position, and successful cover lookups

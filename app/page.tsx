@@ -53,6 +53,7 @@ import {
   getFile,
   formatBytes,
   errorMessage,
+  positionLabel,
   updateBook,
   type LibraryBook,
 } from '@/lib/library';
@@ -516,7 +517,7 @@ export default function Home() {
                 aria-label="Book progress"
               />
               <span>
-                {recent.position.progress}% · {recent.position.label}
+                {recent.position.progress}% · {positionLabel(recent.position)}
               </span>
             </div>
             <button
@@ -639,9 +640,9 @@ export default function Home() {
                       {book.lastRead > 0 && (
                         <p
                           className="card-location"
-                          title={book.position.label}
+                          title={positionLabel(book.position)}
                         >
-                          {book.position.label}
+                          {positionLabel(book.position)}
                         </p>
                       )}
                       <div className="book-card-footer">
