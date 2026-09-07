@@ -53,8 +53,9 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   the page. Focus mode keeps that EPUB page at exactly the same size and reveals
   a clipped continuation beginning after the actual final visible character in
   the space freed by the toolbars. The continuation is aligned directly beneath
-  the current page's last line, removing the vanished bottom toolbar's blank
-  gutter without jumping to a different paragraph. Because
+  the current page's last line by overlapping only the measured empty space
+  beneath that line, preserving normal line spacing without jumping to a
+  different paragraph. Because
   the underlying page never resizes, its number and first sentence cannot change
   when focus opens or closes, and the revealed continuation becomes the next
   complete page after a turn. iPhone safe-area spacing keeps the first line below

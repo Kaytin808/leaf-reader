@@ -165,7 +165,7 @@ function rectIntersectsReaderPage(
 function nextVisibleEpubTextCfi(reader: Rendition, mount: HTMLElement) {
   const mountRect = mount.getBoundingClientRect();
   let boundary:
-    | { contents: Contents; node: Text; offset: number }
+    | { contents: Contents; node: Text; offset: number; bottom: number }
     | undefined;
   // EPUB.js returns an array here at runtime, although its bundled type file
   // incorrectly declares a single Contents value.
@@ -189,12 +189,18 @@ function nextVisibleEpubTextCfi(reader: Rendition, mount: HTMLElement) {
           for (let offset = text.length - 1; offset >= 0; offset--) {
             range.setStart(text, offset);
             range.setEnd(text, offset + 1);
-            if (
-              Array.from(range.getClientRects()).some((rect) =>
-                rectIntersectsReaderPage(rect, frameRect, mountRect),
-              )
-            ) {
-              boundary = { contents, node: text, offset };
+            const visibleRects = Array.from(range.getClientRects()).filter(
+              (rect) => rectIntersectsReaderPage(rect, frameRect, mountRect),
+            );
+            if (visibleRects.length) {
+              boundary = {
+                contents,
+                node: text,
+                offset,
+                bottom:
+                  frameRect.top +
+                  Math.max(...visibleRects.map((rect) => rect.bottom)),
+              };
               break;
             }
           }
@@ -216,7 +222,13 @@ function nextVisibleEpubTextCfi(reader: Rendition, mount: HTMLElement) {
         const range = document.createRange();
         range.setStart(text, offset);
         range.setEnd(text, offset + 1);
-        return boundary.contents.cfiFromRange(range);
+        return {
+          cfi: boundary.contents.cfiFromRange(range),
+          bottomGap: Math.max(
+            0,
+            Math.round(mountRect.bottom - boundary.bottom),
+          ),
+        };
       }
     }
     node = walker.nextNode();
@@ -915,15 +927,25 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const element = epubPreviewMount.current;
     try {
       const visible = location ?? (await reportLatestLocation(main));
+      const measuredContinuation =
+        !visible.atEnd && epubPageMount.current
+          ? nextVisibleEpubTextCfi(main, epubPageMount.current)
+          : undefined;
       const target = visible.atEnd
         ? undefined
-        : (epubPageMount.current &&
-            nextVisibleEpubTextCfi(main, epubPageMount.current)) ||
-          focusContinuationTarget(visible);
+        : measuredContinuation?.cfi || focusContinuationTarget(visible);
       if (!element || !target) {
         if (element) element.hidden = true;
+        readerRoot.current?.style.setProperty(
+          '--epub-continuation-overlap',
+          '0px',
+        );
         return;
       }
+      readerRoot.current?.style.setProperty(
+        '--epub-continuation-overlap',
+        `${measuredContinuation?.bottomGap ?? 0}px`,
+      );
       element.hidden = false;
       element.style.visibility = 'hidden';
       element.style.setProperty('--epub-continuation-trim', '0px');
@@ -939,6 +961,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       element.style.visibility = '';
     } catch {
       if (element) element.hidden = true;
+      readerRoot.current?.style.setProperty(
+        '--epub-continuation-overlap',
+        '0px',
+      );
       // The fixed primary page remains fully usable if an unusual EPUB cannot
       // render or measure the optional focus continuation.
     }

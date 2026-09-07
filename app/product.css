@@ -455,9 +455,12 @@ footer span {
   flex-basis: var(--reader-page-height, 100%);
 }
 .epub-focus-continuation {
+  position: relative;
+  z-index: 1;
   width: 100%;
   min-height: 0;
   flex: 1 1 auto;
+  margin-top: calc(-1 * var(--epub-continuation-overlap, 0px));
   overflow: hidden;
   pointer-events: none;
   user-select: none;

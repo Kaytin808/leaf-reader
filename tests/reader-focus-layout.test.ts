@@ -72,6 +72,8 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
   const continuation = rule('.epub-focus-continuation');
   assert.match(continuation, /overflow:\s*hidden/);
   assert.match(continuation, /pointer-events:\s*none/);
+  assert.match(continuation, /--epub-continuation-overlap/);
+  assert.match(continuation, /margin-top/);
   const preview = rule('.epub-preview-page');
   assert.match(preview, /--epub-continuation-trim/);
   assert.match(preview, /translateY/);
