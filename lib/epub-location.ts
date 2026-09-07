@@ -5,11 +5,6 @@ type LocationReader = {
   currentLocation: () => unknown;
 };
 
-type PageTurnReader = LocationReader & {
-  next: () => Promise<unknown>;
-  prev: () => Promise<unknown>;
-};
-
 // EPUB.js queues reportLocation, then calculates it in an animation frame.
 // Listening for the next `relocated` event can pick up an older queued report.
 // Wait for our report to run, then read the visible viewport directly.
@@ -22,16 +17,6 @@ export async function reportLatestLocation(reader: LocationReader) {
   if (!location?.start?.cfi || !location?.end?.cfi)
     throw new Error('The current page location is not ready.');
   return location;
-}
-
-// Let the active rendition perform its own pagination. Calculating a CFI from
-// a differently sized rendition can resolve to the same page repeatedly.
-export async function turnEpubPage(
-  reader: PageTurnReader,
-  direction: -1 | 1,
-) {
-  await (direction > 0 ? reader.next() : reader.prev());
-  return reportLatestLocation(reader);
 }
 
 type RestorableReader = LocationReader & {

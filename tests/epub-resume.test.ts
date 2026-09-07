@@ -5,7 +5,6 @@ import type { Location } from 'epubjs/types/rendition';
 import {
   reportLatestLocation,
   restoreEpubLocation,
-  turnEpubPage,
 } from '../lib/epub-location';
 import { positionForEpub } from '../lib/chapters';
 import { addBook, updateBook, listBooks, deleteBook } from '../lib/library';
@@ -138,31 +137,6 @@ test('location capture waits for its queued report instead of accepting an older
   assert.equal(resolved, false, 'Wait for the animation-frame report');
   frames.shift()!(0);
   assert.equal((await reading).start.displayed.page, 45);
-});
-
-test('focus turns use the focus rendition page instead of recalculating its anchor', async () => {
-  const originalFrame = globalThis.requestAnimationFrame;
-  globalThis.requestAnimationFrame = (callback) => {
-    callback(0);
-    return 1;
-  };
-  let visible = at(40);
-  const reader = {
-    next: async () => {
-      visible = at(48);
-    },
-    prev: async () => {
-      visible = at(32);
-    },
-    reportLocation: async () => undefined,
-    currentLocation: () => visible,
-  };
-  try {
-    assert.equal((await turnEpubPage(reader, 1)).start.cfi, cfi(48));
-    assert.equal((await turnEpubPage(reader, -1)).start.cfi, cfi(32));
-  } finally {
-    globalThis.requestAnimationFrame = originalFrame;
-  }
 });
 
 test('save 45 after 37, reopen from storage, and resize to the latest saved passage', async () => {

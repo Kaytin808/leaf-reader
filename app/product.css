@@ -450,24 +450,6 @@ footer span {
   flex: 0 0 100%;
   overflow: hidden;
 }
-.reader-focus .epub-primary-page {
-  height: var(--reader-page-height, 100%);
-  flex-basis: var(--reader-page-height, 100%);
-}
-.epub-focus-page {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  overflow: hidden;
-  pointer-events: none;
-  user-select: none;
-  background: inherit;
-}
-.epub-preview-page {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
 .text-area {
   overflow: auto;
   overscroll-behavior: contain;

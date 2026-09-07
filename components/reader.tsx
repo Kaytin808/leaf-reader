@@ -67,7 +67,6 @@ import {
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
-  turnEpubPage,
 } from '@/lib/epub-location';
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
@@ -150,7 +149,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [onUpdate]);
   const mount = useRef<HTMLElement>(null);
   const epubPageMount = useRef<HTMLDivElement>(null);
-  const epubPreviewMount = useRef<HTMLDivElement>(null);
   const readerRoot = useRef<HTMLDivElement>(null);
   const readerHeader = useRef<HTMLElement>(null);
   const readerFooter = useRef<HTMLDivElement>(null);
@@ -159,8 +157,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const epub = useRef<Book | null>(null);
   const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
-  const previewRendition = useRef<Rendition | null>(null);
-  const focusAnchor = useRef<string | undefined>(undefined);
   const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
@@ -209,13 +205,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const setReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible || navigationPending.current)
       return;
-    if (!visible && readerRoot.current && mount.current) {
-      readerRoot.current.style.setProperty(
-        '--reader-page-height',
-        `${Math.max(1, Math.round(mount.current.clientHeight))}px`,
-      );
-      focusAnchor.current = current.current.location || undefined;
-    }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
     requestAnimationFrame(() =>
@@ -827,83 +816,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     });
   }, [book.format, zoom, toggleControls]);
 
-  const updateFocusPreview = useCallback(
-    async (location?: Location, requested?: string) => {
-      const preview = previewRendition.current;
-      const main = rendition.current;
-      if (!preview || !main) return;
-      const element = epubPreviewMount.current;
-      try {
-        const visible = location ?? (await reportLatestLocation(main));
-        const target = requested ?? focusAnchor.current ?? visible.start.cfi;
-        if (!element || !target) {
-          if (element) element.hidden = true;
-          return;
-        }
-        element.hidden = false;
-        element.style.visibility = 'hidden';
-        await preview.display(target);
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
-        focusAnchor.current = target;
-        element.style.visibility = '';
-      } catch {
-        if (element) element.hidden = true;
-        // The fixed primary page remains fully usable if an unusual EPUB cannot
-        // render the optional continuous Focus viewport.
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (
-      controlsVisible ||
-      book.format !== 'epub' ||
-      !epubReady.current ||
-      !epub.current ||
-      !epubPreviewMount.current
-    )
-      return;
-    let cancelled = false;
-    let preview: Rendition | undefined;
-    const openPreview = async () => {
-      try {
-        const { Rendition: EpubRendition } = await import('epubjs');
-        if (cancelled || !epub.current || !epubPreviewMount.current) return;
-        preview = new EpubRendition(epub.current, {
-          width: '100%',
-          height: '100%',
-          spread: 'none',
-          flow: 'paginated',
-          allowScriptedContent: false,
-        });
-        await preview.attachTo(epubPreviewMount.current);
-        if (cancelled) {
-          preview.destroy();
-          return;
-        }
-        styleEpub(preview, settings.current, reflowableEpub.current);
-        previewRendition.current = preview;
-        await updateFocusPreview();
-      } catch {
-        if (!cancelled && epubPreviewMount.current)
-          epubPreviewMount.current.hidden = true;
-      }
-    };
-    void openPreview();
-    return () => {
-      cancelled = true;
-      if (previewRendition.current === preview) previewRendition.current = null;
-      try {
-        preview?.destroy();
-      } catch {
-        /* A partially attached preview can already be gone. */
-      }
-    };
-  }, [book.format, controlsVisible, updateFocusPreview]);
-
   useEffect(() => {
     if (book.format !== 'epub' || !epubPageMount.current) return;
     const observedPage = epubPageMount.current;
@@ -1004,30 +916,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setTurning(true);
       navigationPending.current = true;
       try {
-        const main = rendition.current;
-        const focus = controlsVisibleRef.current
-          ? null
-          : previewRendition.current;
-        if (main && focus) {
-          const previous = focusAnchor.current;
-          const focusLocation = await turnEpubPage(focus, direction);
-          const target = focusLocation.start.cfi;
-          if (target && target !== previous) {
-            focusAnchor.current = target;
-            requestedCfi.current = target;
-            await main.display(target);
-            const location = await reportLatestLocation(main);
-            persistEpubLocation(location, target);
-          }
-        } else {
-          await (direction > 0 ? main?.next() : main?.prev());
-          if (main) {
-            const location = await reportLatestLocation(main);
-            persistEpubLocation(location);
-            await updateFocusPreview(location);
-          }
+        const reader = rendition.current;
+        await (direction > 0 ? reader?.next() : reader?.prev());
+        if (reader) {
+          const location = await reportLatestLocation(reader);
+          persistEpubLocation(location);
         }
-        if (main) {
+        if (reader) {
           await writeQueue.current;
         }
       } catch {
@@ -1121,7 +1016,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         await rendition.current.display(location);
         const reported = await reportLatestLocation(rendition.current);
         persistEpubLocation(reported, requestedCfi.current);
-        await updateFocusPreview(reported);
         await writeQueue.current;
         const details = current.current.epubPage;
         if (
@@ -1347,14 +1241,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         style={{ background: palette[theme].bg, color: palette[theme].fg }}
       >
         {book.format === 'epub' && (
-          <>
-            <div ref={epubPageMount} className="epub-primary-page" />
-            {!controlsVisible && (
-              <div className="epub-focus-page" aria-hidden="true">
-                <div ref={epubPreviewMount} className="epub-preview-page" />
-              </div>
-            )}
-          </>
+          <div ref={epubPageMount} className="epub-primary-page" />
         )}
         {book.format === 'pdf' && !loading && pdf.current && (
           <PdfPage
