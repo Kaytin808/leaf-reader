@@ -62,15 +62,12 @@ import {
 } from '@/lib/chapters';
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
-import {
-  EpubReflow,
-  focusContinuationTarget,
-  positionAfterReflow,
-} from '@/lib/epub-reflow';
+import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
+  turnEpubPage,
 } from '@/lib/epub-location';
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
@@ -144,45 +141,6 @@ function styleEpub(
   if (reflowable) reader.themes.fontSize(`${preferences.fontSize}px`);
 }
 
-function nextEpubTextCfi(reader: Rendition, cfi: string) {
-  if (!cfi) return undefined;
-  const boundary = reader.getRange(cfi);
-  if (!boundary) return undefined;
-  const document = boundary.endContainer.ownerDocument;
-  if (!document) return undefined;
-  const contents = (reader.getContents() as unknown as Contents[]).find(
-    (item) => item.document === document,
-  );
-  if (!contents || !document.body) return undefined;
-  const end = boundary.cloneRange();
-  end.collapse(false);
-  const walker = document.createTreeWalker(document.body, 4);
-  let node = walker.nextNode();
-  while (node) {
-    const text = node as Text;
-    let offset = 0;
-    if (text === end.endContainer) offset = end.endOffset;
-    else {
-      const start = document.createRange();
-      start.setStart(text, 0);
-      start.collapse(true);
-      if (end.compareBoundaryPoints(0, start) > 0) {
-        node = walker.nextNode();
-        continue;
-      }
-    }
-    for (; offset < text.length; offset++) {
-      if (!/\s/.test(text.data[offset])) {
-        const character = document.createRange();
-        character.setStart(text, offset);
-        character.setEnd(text, offset + 1);
-        return contents.cfiFromRange(character);
-      }
-    }
-    node = walker.nextNode();
-  }
-  return undefined;
-}
 export default function Reader({ book, onClose, onUpdate }: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
@@ -203,7 +161,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const rendition = useRef<Rendition | null>(null);
   const previewRendition = useRef<Rendition | null>(null);
   const focusAnchor = useRef<string | undefined>(undefined);
-  const focusHistory = useRef<string[]>([]);
   const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
@@ -258,7 +215,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         `${Math.max(1, Math.round(mount.current.clientHeight))}px`,
       );
       focusAnchor.current = current.current.location || undefined;
-      focusHistory.current = [];
     }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
@@ -920,7 +876,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           width: '100%',
           height: '100%',
           spread: 'none',
-          flow: 'scrolled-doc',
+          flow: 'paginated',
           allowScriptedContent: false,
         });
         await preview.attachTo(epubPreviewMount.current);
@@ -1053,30 +1009,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           ? null
           : previewRendition.current;
         if (main && focus) {
-          let target: string | undefined;
-          if (direction > 0) {
-            const focusLocation = await reportLatestLocation(focus);
-            target = nextEpubTextCfi(
-              focus,
-              focusContinuationTarget(focusLocation) ?? '',
-            );
-            if (!target) {
-              await focus.next();
-              const nextLocation = await reportLatestLocation(focus);
-              if (nextLocation.start.cfi !== focusAnchor.current)
-                target = nextLocation.start.cfi;
-            }
-            if (target && focusAnchor.current)
-              focusHistory.current.push(focusAnchor.current);
-          } else target = focusHistory.current.pop();
-
-          if (!target && direction < 0) {
-            await main.prev();
-            target = (await reportLatestLocation(main)).start.cfi;
-          }
-          if (target) {
+          const previous = focusAnchor.current;
+          const focusLocation = await turnEpubPage(focus, direction);
+          const target = focusLocation.start.cfi;
+          if (target && target !== previous) {
             focusAnchor.current = target;
-            await focus.display(target);
             requestedCfi.current = target;
             await main.display(target);
             const location = await reportLatestLocation(main);

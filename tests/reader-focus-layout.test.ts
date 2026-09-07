@@ -94,9 +94,10 @@ test('native reader toolbars do not apply safe-area padding twice', () => {
   assert.doesNotMatch(nativeRule('.reader-bottom'), /safe-area-inset-bottom/);
 });
 
-test('focus uses one continuous viewport and advances beyond all visible text', () => {
-  assert.match(readerSource, /flow:\s*'scrolled-doc'/);
-  assert.match(readerSource, /nextEpubTextCfi\(/);
-  assert.match(readerSource, /focusHistory\.current\.push/);
+test('focus uses its own taller pagination and turns that rendition directly', () => {
+  assert.match(readerSource, /flow:\s*'paginated'/);
+  assert.match(readerSource, /turnEpubPage\(focus, direction\)/);
+  assert.match(readerSource, /const target = focusLocation\.start\.cfi/);
   assert.doesNotMatch(readerSource, /epub-focus-continuation/);
+  assert.doesNotMatch(readerSource, /nextEpubTextCfi/);
 });
