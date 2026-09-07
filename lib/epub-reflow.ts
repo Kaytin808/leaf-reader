@@ -36,12 +36,10 @@ export function positionAfterReflow(
   chapters: Chapter[],
   sections: number,
   fontSize: number,
-  preservePageNumber = false,
 ): Position {
-  // Repagination never changes the anchored passage or reading progress. A
-  // focus-only reflow can also retain the reader-facing page counter so merely
-  // showing or hiding controls cannot appear to move the reader backward.
-  const fitted = repairChapterLabel(
+  // Repagination never changes the anchored passage or reading progress. The
+  // screen-page counter is allowed to reflect the new viewport height.
+  return repairChapterLabel(
     {
       ...positionForEpub(location, chapters, sections, undefined, fontSize),
       location: anchor.location,
@@ -49,7 +47,4 @@ export function positionAfterReflow(
     },
     chapters,
   );
-  return preservePageNumber && anchor.epubPage
-    ? { ...fitted, epubPage: structuredClone(anchor.epubPage) }
-    : fitted;
 }

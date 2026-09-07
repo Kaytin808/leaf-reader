@@ -89,15 +89,16 @@ test('reading ahead after a viewport reflow becomes the next anchor', () => {
   assert.notEqual(restored.location, normal.location);
 });
 
-test('every delayed focus reflow keeps the visible passage and reader page number', () => {
+test('focus reflow keeps the passage while recalculating pages for each viewport', () => {
   const normal = positionForEpub(at(40), [], 1, undefined, 20);
-  let fitted = normal;
-  for (const reportedPage of [32, 31, 32]) {
-    fitted = positionAfterReflow(at(reportedPage), fitted, [], 1, 20, true);
-    assert.equal(fitted.location, normal.location);
-    assert.equal(fitted.progress, normal.progress);
-    assert.deepEqual(fitted.epubPage, normal.epubPage);
-  }
+  const focused = positionAfterReflow(at(32), normal, [], 1, 20);
+  assert.equal(focused.location, normal.location);
+  assert.equal(focused.progress, normal.progress);
+  assert.equal(focused.epubPage?.page, 32);
+  const restored = positionAfterReflow(at(40), focused, [], 1, 20);
+  assert.equal(restored.location, normal.location);
+  assert.equal(restored.progress, normal.progress);
+  assert.equal(restored.epubPage?.page, 40);
 });
 
 test('fitting more text onto the final page does not mark the book complete', () => {

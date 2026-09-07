@@ -116,7 +116,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
-  const ignoreRelocatedUntil = useRef(0);
   const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
@@ -167,7 +166,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       return;
     if (epubReady.current) {
       layoutReflow.current.begin(current.current);
-      ignoreRelocatedUntil.current = Date.now() + 1000;
       setSaveState('Fitting page…');
     }
     controlsVisibleRef.current = visible;
@@ -554,8 +552,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               cancelled ||
               !epubReady.current ||
               navigationPending.current ||
-              layoutReflow.current.pending ||
-              Date.now() < ignoreRelocatedUntil.current
+              layoutReflow.current.pending
             )
               return;
             setAtStart(loc.atStart);
@@ -617,10 +614,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
               restored.atEnd,
             );
-            // EPUB.js can emit another relocated event after its resize promise
-            // settles. It describes the same passage with a different viewport
-            // page number, so do not let it overwrite the anchored reader page.
-            ignoreRelocatedUntil.current = Date.now() + 500;
             requestedCfi.current = undefined;
             epubReady.current = true;
             setAtStart(restored.atStart);
@@ -876,12 +869,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 chapterData.current,
                 sectionCount,
                 settings.current.fontSize,
-                true,
               ),
             );
-            // A later engine report still describes this anchored passage but
-            // can carry the other viewport's page number. Ignore that counter.
-            ignoreRelocatedUntil.current = Date.now() + 500;
             requestedCfi.current = undefined;
           }
         } catch {
@@ -936,11 +925,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           : rendition.current?.prev());
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
-          persistEpubLocation(
-            location,
-            undefined,
-            controlsVisibleRef.current ? undefined : direction,
-          );
+          persistEpubLocation(location);
           await writeQueue.current;
         }
       } catch {
@@ -1060,33 +1045,21 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setTurning(false);
     }
   }
-  function persistEpubLocation(
-    location: Location,
-    target?: string,
-    focusPageStep?: -1 | 0 | 1,
-  ) {
+  function persistEpubLocation(location: Location, target?: string) {
     let sectionCount = 0;
     epub.current?.spine.each(() => sectionCount++);
     setAtStart(location.atStart);
     setAtEnd(location.atEnd);
-    const next = positionForEpub(
-      location,
-      chapters,
-      sectionCount,
-      target,
-      settings.current.fontSize,
+    save(
+      positionForEpub(
+        location,
+        chapters,
+        sectionCount,
+        target,
+        settings.current.fontSize,
+      ),
+      location.atEnd,
     );
-    if (focusPageStep !== undefined && current.current.epubPage) {
-      const previous = current.current.epubPage;
-      next.epubPage = {
-        ...previous,
-        page: Math.max(
-          1,
-          Math.min(previous.total, previous.page + focusPageStep),
-        ),
-      };
-    }
-    save(next, location.atEnd);
     if (!target || requestedCfi.current === target)
       requestedCfi.current = undefined;
   }
@@ -1107,7 +1080,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         persistEpubLocation(
           await reportLatestLocation(rendition.current),
           current.current.location,
-          controlsVisibleRef.current ? undefined : 0,
         );
       } else if (book.format !== 'epub' && !loading && total) {
         const finalPage = Math.max(1, Math.min(total, page));
@@ -1600,8 +1572,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               {book.format === 'epub' && (
                 <p className="settings-note">
                   EPUB screen pages are counted within each book section, not a
-                  printed edition. Larger text creates more pages. Bookmarks
-                  return to the exact passage even when page numbers change.
+                  printed edition. Focus pages are taller, so their numbers can
+                  differ from normal pages. When the toolbars return, every
+                  hidden line is repaginated onto a visible page; no sentences
+                  are skipped. Bookmarks return to the exact passage.
                 </p>
               )}
             </div>

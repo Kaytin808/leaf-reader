@@ -44,7 +44,7 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
   assert.doesNotMatch(reader, /transition:\s*grid-template-rows/);
   assert.match(
     rule('.reader-focus'),
-    /grid-template-rows:\s*0\s+minmax\(0,\s*1fr\)\s+0/,
+    /grid-template-rows:\s*14px\s+minmax\(0,\s*1fr\)\s+14px/,
   );
 
   for (const selector of [
@@ -58,6 +58,11 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
 
   assert.match(rule('.reader-header'), /position:\s*relative/);
   assert.match(rule('.reader-bottom'), /position:\s*relative/);
+  assert.match(rule('.reader-header'), /grid-row:\s*1/);
+  assert.match(readingArea, /grid-row:\s*2/);
+  assert.match(readingArea, /overflow:\s*hidden/);
+  assert.match(readingArea, /contain:\s*layout paint/);
+  assert.match(rule('.reader-bottom'), /grid-row:\s*3/);
 
   const recoveryControl = rule('.reader-show-controls');
   assert.match(recoveryControl, /safe-area-inset-bottom/);

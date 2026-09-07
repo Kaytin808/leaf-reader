@@ -360,7 +360,7 @@ footer span {
   overflow: hidden;
 }
 .reader-focus {
-  grid-template-rows: 0 minmax(0, 1fr) 0;
+  grid-template-rows: 14px minmax(0, 1fr) 14px;
 }
 .reader .icon-button {
   width: 44px;
@@ -368,6 +368,7 @@ footer span {
   height: 44px;
 }
 .reader-header {
+  grid-row: 1;
   position: relative;
   z-index: 25;
   display: flex;
@@ -411,11 +412,14 @@ footer span {
   gap: 6px;
 }
 .reading-area {
+  grid-row: 2;
   position: relative;
   width: 100%;
   height: 100%;
   min-height: 0;
   align-self: stretch;
+  overflow: hidden;
+  contain: layout paint;
 }
 .reading-area:focus-visible {
   outline-offset: -4px;
@@ -536,6 +540,7 @@ footer span {
   background: #111b28;
 }
 .reader-bottom {
+  grid-row: 3;
   position: relative;
   z-index: 25;
   padding: 0 28px 10px;
