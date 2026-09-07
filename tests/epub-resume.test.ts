@@ -11,6 +11,7 @@ import { addBook, updateBook, listBooks, deleteBook } from '../lib/library';
 import {
   EpubReflow,
   focusContinuationTarget,
+  focusContinuationTrim,
   positionAfterReflow,
 } from '../lib/epub-reflow';
 
@@ -96,6 +97,12 @@ test('reading ahead after a viewport reflow becomes the next anchor', () => {
 test('focus continuation begins exactly where the fixed current page ends', () => {
   assert.equal(focusContinuationTarget(at(40)), cfi(41));
   assert.equal(focusContinuationTarget({ ...at(40), atEnd: true }), undefined);
+});
+
+test('focus continuation removes its page-top gutter without clipping text', () => {
+  assert.equal(focusContinuationTrim(72), 64);
+  assert.equal(focusContinuationTrim(5), 0);
+  assert.equal(focusContinuationTrim(Number.NaN), 0);
 });
 
 test('fitting more text onto the final page does not mark the book complete', () => {

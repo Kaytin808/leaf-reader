@@ -52,19 +52,22 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
 - Normal mode measures and reserves space for both toolbars so they never cover
   the page. Focus mode keeps that EPUB page at exactly the same size and reveals
   a clipped continuation beginning at the page's ending CFI in the space freed
-  by the toolbars. Because the underlying page never resizes, its number and
-  first sentence cannot change when focus opens or closes, and the revealed
-  continuation becomes the next complete page after a turn. iPhone safe-area
-  spacing keeps the first line below the status bar and Dynamic Island.
+  by the toolbars. The continuation is aligned directly beneath the current
+  page's last line, removing the vanished bottom toolbar's blank gutter. Because
+  the underlying page never resizes, its number and first sentence cannot change
+  when focus opens or closes, and the revealed continuation becomes the next
+  complete page after a turn. iPhone safe-area spacing keeps the first line below
+  the status bar and Dynamic Island.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
   Opening waits for the final viewport location before saving, and resize
   receives the same saved passage. Failed restoration leaves the saved place
   intact instead of silently opening and saving the beginning.
-- Reading Settings can lock every page-turn gesture and button while keeping
-  center taps available to restore the controls. An optional native keep-awake
-  switch prevents the iPhone from auto-locking while the reader is open.
+- The lock button beside Focus—and its matching Reading Settings switch—can lock
+  every page-turn gesture and button while keeping center taps available to
+  restore the controls. Native keep-awake is automatic whenever the reader is
+  open, so the iPhone does not auto-lock while a book is being read.
   EPUB open targets are consumed once so an older CFI cannot overwrite a newer
   reading position; PDF and TXT pages also receive a final save on exit.
 - Native reader toolbars use the root safe area once, removing excess blank

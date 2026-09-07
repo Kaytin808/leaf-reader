@@ -464,8 +464,11 @@ footer span {
 }
 .epub-preview-page {
   width: 100%;
-  height: var(--reader-page-height, 100%);
+  height: calc(var(--reader-page-height, 100%) + 100%);
   overflow: hidden;
+  transform: translateY(
+    calc(-1 * var(--epub-continuation-trim, 0px))
+  );
 }
 .text-area {
   overflow: auto;

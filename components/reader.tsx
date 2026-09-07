@@ -65,6 +65,7 @@ import { bindReaderTaps } from '@/lib/reader-gestures';
 import {
   EpubReflow,
   focusContinuationTarget,
+  focusContinuationTrim,
   positionAfterReflow,
 } from '@/lib/epub-reflow';
 import {
@@ -204,9 +205,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   );
   const pageTurnsLockedRef = useRef(pageTurnsLocked);
   pageTurnsLockedRef.current = pageTurnsLocked;
-  const [keepScreenAwake, setKeepScreenAwake] = useState(
-    DEFAULT_READING_PREFERENCES.keepScreenAwake,
-  );
   const [keepAwakeAvailable, setKeepAwakeAvailable] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
@@ -440,7 +438,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setAlignment(saved.alignment);
       setBrightness(saved.brightness);
       setPageTurnsLocked(saved.pageTurnsLocked);
-      setKeepScreenAwake(saved.keepScreenAwake);
     } catch {
       /* Optional preferences. */
     }
@@ -683,7 +680,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           alignment,
           brightness,
           pageTurnsLocked,
-          keepScreenAwake,
+          keepScreenAwake: true,
         }),
       );
     } catch {
@@ -698,7 +695,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     alignment,
     brightness,
     pageTurnsLocked,
-    keepScreenAwake,
   ]);
 
   useEffect(() => {
@@ -711,11 +707,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const { isSupported } = await plugin.isSupported();
         if (cancelled) return;
         setKeepAwakeAvailable(isSupported);
-        if (
-          isSupported &&
-          keepScreenAwake &&
-          document.visibilityState === 'visible'
-        )
+        if (isSupported && document.visibilityState === 'visible')
           await plugin.keepAwake();
         else await plugin.allowSleep();
       } catch {
@@ -730,7 +722,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       document.removeEventListener('visibilitychange', visibility);
       if (plugin) void plugin.allowSleep().catch(() => {});
     };
-  }, [keepScreenAwake]);
+  }, []);
 
   useEffect(() => {
     const r = rendition.current;
@@ -840,15 +832,31 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const preview = previewRendition.current;
     const main = rendition.current;
     if (!preview || !main) return;
+    const element = epubPreviewMount.current;
     try {
       const visible = location ?? (await reportLatestLocation(main));
       const target = focusContinuationTarget(visible);
-      if (target) await preview.display(target);
-      const element = epubPreviewMount.current;
-      if (element) element.hidden = !target;
+      if (!element || !target) {
+        if (element) element.hidden = true;
+        return;
+      }
+      element.hidden = false;
+      element.style.visibility = 'hidden';
+      element.style.setProperty('--epub-continuation-trim', '0px');
+      await preview.display(target);
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => resolve()),
+      );
+      const targetTop = preview.getRange(target).getBoundingClientRect().top;
+      element.style.setProperty(
+        '--epub-continuation-trim',
+        `${focusContinuationTrim(targetTop)}px`,
+      );
+      element.style.visibility = '';
     } catch {
-      // The primary page remains fully usable if an unusual EPUB cannot render
-      // the optional focus continuation.
+      if (element) element.hidden = true;
+      // The fixed primary page remains fully usable if an unusual EPUB cannot
+      // render or measure the optional focus continuation.
     }
   }, []);
 
@@ -1251,6 +1259,18 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             <Settings2 size={20} />
           </button>
           <button
+            className={`icon-button ${pageTurnsLocked ? 'is-marked' : ''}`}
+            aria-label={
+              pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'
+            }
+            title={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
+            aria-pressed={pageTurnsLocked}
+            disabled={loading}
+            onClick={() => setPageTurnsLocked((locked) => !locked)}
+          >
+            <LockKeyhole size={20} />
+          </button>
+          <button
             ref={focusModeButton}
             className="icon-button"
             aria-label="Hide controls and focus on reading"
@@ -1632,18 +1652,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   aria-label="Lock page turns"
                 />
               </div>
-              <div className="setting-row setting-toggle">
-                <label htmlFor="keep-screen-awake">
-                  <strong>Keep screen awake</strong>
-                  <small>Prevents auto-lock while this reader is open.</small>
-                </label>
-                <Switch
-                  id="keep-screen-awake"
-                  checked={keepScreenAwake}
-                  onCheckedChange={setKeepScreenAwake}
-                  disabled={!keepAwakeAvailable}
-                  aria-label="Keep screen awake"
-                />
+              <div className="setting-row">
+                <div>
+                  <strong>Screen stays awake</strong>
+                  <small>Always on while this reader is open.</small>
+                </div>
+                {keepAwakeAvailable && <Check size={18} aria-hidden="true" />}
               </div>
               {!keepAwakeAvailable && (
                 <p className="settings-note">
