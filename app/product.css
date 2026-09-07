@@ -593,11 +593,16 @@ footer span {
   opacity: 0;
   pointer-events: none;
 }
-.reader-show-controls {
+.reader-focus-actions {
   position: absolute;
   z-index: 30;
   right: 12px;
   bottom: calc(env(safe-area-inset-bottom) + 12px);
+  display: flex;
+  gap: 8px;
+}
+.reader-show-controls,
+.reader-focus-lock {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -612,6 +617,10 @@ footer span {
   backdrop-filter: blur(12px);
   font-size: 14px;
   font-weight: 600;
+}
+.reader-focus-lock.is-marked {
+  background: #7caaf2;
+  color: #10233b;
 }
 .reader-bottom > [data-slot='progress'] {
   margin-top: -1px;

@@ -76,9 +76,10 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
   assert.match(preview, /--epub-continuation-trim/);
   assert.match(preview, /translateY/);
 
-  const recoveryControl = rule('.reader-show-controls');
-  assert.match(recoveryControl, /safe-area-inset-bottom/);
-  assert.doesNotMatch(recoveryControl, /\btop:/);
+  const focusActions = rule('.reader-focus-actions');
+  assert.match(focusActions, /safe-area-inset-bottom/);
+  assert.match(focusActions, /display:\s*flex/);
+  assert.doesNotMatch(focusActions, /\btop:/);
 });
 
 test('native reader toolbars do not apply safe-area padding twice', () => {

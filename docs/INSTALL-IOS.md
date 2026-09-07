@@ -64,10 +64,11 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   Opening waits for the final viewport location before saving, and resize
   receives the same saved passage. Failed restoration leaves the saved place
   intact instead of silently opening and saving the beginning.
-- The lock button beside Focus—and its matching Reading Settings switch—can lock
-  every page-turn gesture and button while keeping center taps available to
-  restore the controls. Native keep-awake is automatic whenever the reader is
-  open, so the iPhone does not auto-lock while a book is being read.
+- The lock button beside Focus, the matching floating lock in Focus mode, and
+  the Reading Settings switch can lock every page-turn gesture and button while
+  keeping center taps available to restore the controls. Native keep-awake is
+  automatic whenever the reader is open, so the iPhone does not auto-lock while
+  a book is being read.
   EPUB open targets are consumed once so an older CFI cannot overwrite a newer
   reading position; PDF and TXT pages also receive a final save on exit.
 - Native reader toolbars use the root safe area once, removing excess blank

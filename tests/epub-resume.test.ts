@@ -99,7 +99,7 @@ test('focus continuation begins exactly where the fixed current page ends', () =
   assert.equal(focusContinuationTarget({ ...at(40), atEnd: true }), undefined);
 });
 
-test('focus continuation removes its page-top gutter without clipping text', () => {
+test('focus continuation aligns its first visible line without clipping text', () => {
   assert.equal(focusContinuationTrim(72), 64);
   assert.equal(focusContinuationTrim(5), 0);
   assert.equal(focusContinuationTrim(Number.NaN), 0);

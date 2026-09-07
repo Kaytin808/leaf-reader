@@ -6,9 +6,9 @@ export function focusContinuationTarget(location: Location) {
   return location.atEnd ? undefined : location.end.cfi;
 }
 
-export function focusContinuationTrim(targetTop: number, inset = 8) {
-  if (!Number.isFinite(targetTop)) return 0;
-  return Math.max(0, Math.round(targetTop - Math.max(0, inset)));
+export function focusContinuationTrim(contentTop: number, inset = 8) {
+  if (!Number.isFinite(contentTop)) return 0;
+  return Math.max(0, Math.round(contentTop - Math.max(0, inset)));
 }
 
 // One anchor spans the whole animation, including rapid reversals. Each new

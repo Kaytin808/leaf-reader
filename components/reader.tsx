@@ -144,6 +144,42 @@ function styleEpub(
   });
   if (reflowable) reader.themes.fontSize(`${preferences.fontSize}px`);
 }
+
+function firstVisibleEpubTextTop(reader: Rendition, mount: HTMLElement) {
+  const mountRect = mount.getBoundingClientRect();
+  // EPUB.js returns an array here at runtime, although its bundled type file
+  // incorrectly declares a single Contents value.
+  for (const contents of reader.getContents() as unknown as Contents[]) {
+    const document = contents.document;
+    const frame = document.defaultView?.frameElement;
+    if (!(frame instanceof HTMLElement) || !document.body) continue;
+    const frameRect = frame.getBoundingClientRect();
+    const walker = document.createTreeWalker(document.body, 4);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.textContent?.trim()) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        for (const rect of range.getClientRects()) {
+          const left = frameRect.left + rect.left;
+          const right = frameRect.left + rect.right;
+          const top = frameRect.top + rect.top;
+          const bottom = frameRect.top + rect.bottom;
+          if (
+            right > mountRect.left &&
+            left < mountRect.right &&
+            bottom > mountRect.top &&
+            top < mountRect.bottom
+          ) {
+            return Math.max(0, top - mountRect.top);
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+  }
+  return undefined;
+}
 export default function Reader({ book, onClose, onUpdate }: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
@@ -847,10 +883,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
-      const targetTop = preview.getRange(target).getBoundingClientRect().top;
+      const contentTop =
+        firstVisibleEpubTextTop(preview, element) ??
+        preview.getRange(target).getBoundingClientRect().top;
       element.style.setProperty(
         '--epub-continuation-trim',
-        `${focusContinuationTrim(targetTop)}px`,
+        `${focusContinuationTrim(contentTop)}px`,
       );
       element.style.visibility = '';
     } catch {
@@ -1284,16 +1322,33 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         </div>
       </header>
       {!controlsVisible && (
-        <button
-          ref={showControlsButton}
-          className="reader-show-controls"
-          aria-label="Show reading controls"
-          title="Show reading controls"
-          onClick={() => setReaderControls(true)}
+        <div
+          className="reader-focus-actions"
+          role="toolbar"
+          aria-label="Focus reading tools"
         >
-          <Eye size={18} />
-          <span className="sr-only">Controls</span>
-        </button>
+          <button
+            className={`reader-focus-lock ${pageTurnsLocked ? 'is-marked' : ''}`}
+            aria-label={
+              pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'
+            }
+            title={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
+            aria-pressed={pageTurnsLocked}
+            onClick={() => setPageTurnsLocked((locked) => !locked)}
+          >
+            <LockKeyhole size={18} />
+          </button>
+          <button
+            ref={showControlsButton}
+            className="reader-show-controls"
+            aria-label="Show reading controls"
+            title="Show reading controls"
+            onClick={() => setReaderControls(true)}
+          >
+            <Eye size={18} />
+            <span className="sr-only">Controls</span>
+          </button>
+        </div>
       )}
       {error && (
         <div className="reader-error" role="alert">
