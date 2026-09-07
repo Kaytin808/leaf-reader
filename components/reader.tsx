@@ -145,8 +145,28 @@ function styleEpub(
   if (reflowable) reader.themes.fontSize(`${preferences.fontSize}px`);
 }
 
-function firstVisibleEpubTextTop(reader: Rendition, mount: HTMLElement) {
+function rectIntersectsReaderPage(
+  rect: DOMRect,
+  frameRect: DOMRect,
+  mountRect: DOMRect,
+) {
+  const left = frameRect.left + rect.left;
+  const right = frameRect.left + rect.right;
+  const top = frameRect.top + rect.top;
+  const bottom = frameRect.top + rect.bottom;
+  return (
+    right > mountRect.left &&
+    left < mountRect.right &&
+    top >= mountRect.top - 1 &&
+    bottom <= mountRect.bottom + 1
+  );
+}
+
+function nextVisibleEpubTextCfi(reader: Rendition, mount: HTMLElement) {
   const mountRect = mount.getBoundingClientRect();
+  let boundary:
+    | { contents: Contents; node: Text; offset: number }
+    | undefined;
   // EPUB.js returns an array here at runtime, although its bundled type file
   // incorrectly declares a single Contents value.
   for (const contents of reader.getContents() as unknown as Contents[]) {
@@ -160,23 +180,47 @@ function firstVisibleEpubTextTop(reader: Rendition, mount: HTMLElement) {
       if (node.textContent?.trim()) {
         const range = document.createRange();
         range.selectNodeContents(node);
-        for (const rect of range.getClientRects()) {
-          const left = frameRect.left + rect.left;
-          const right = frameRect.left + rect.right;
-          const top = frameRect.top + rect.top;
-          const bottom = frameRect.top + rect.bottom;
-          if (
-            right > mountRect.left &&
-            left < mountRect.right &&
-            bottom > mountRect.top &&
-            top < mountRect.bottom
-          ) {
-            return Math.max(0, top - mountRect.top);
+        if (
+          Array.from(range.getClientRects()).some((rect) =>
+            rectIntersectsReaderPage(rect, frameRect, mountRect),
+          )
+        ) {
+          const text = node as Text;
+          for (let offset = text.length - 1; offset >= 0; offset--) {
+            range.setStart(text, offset);
+            range.setEnd(text, offset + 1);
+            if (
+              Array.from(range.getClientRects()).some((rect) =>
+                rectIntersectsReaderPage(rect, frameRect, mountRect),
+              )
+            ) {
+              boundary = { contents, node: text, offset };
+              break;
+            }
           }
         }
       }
       node = walker.nextNode();
     }
+  }
+  if (!boundary) return undefined;
+  const document = boundary.contents.document;
+  const walker = document.createTreeWalker(document.body, 4);
+  walker.currentNode = boundary.node;
+  let node: Node | null = boundary.node;
+  let offset = boundary.offset + 1;
+  while (node) {
+    const text = node as Text;
+    for (; offset < text.length; offset++) {
+      if (!/\s/.test(text.data[offset])) {
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.setEnd(text, offset + 1);
+        return boundary.contents.cfiFromRange(range);
+      }
+    }
+    node = walker.nextNode();
+    offset = 0;
   }
   return undefined;
 }
@@ -871,7 +915,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const element = epubPreviewMount.current;
     try {
       const visible = location ?? (await reportLatestLocation(main));
-      const target = focusContinuationTarget(visible);
+      const target = visible.atEnd
+        ? undefined
+        : (epubPageMount.current &&
+            nextVisibleEpubTextCfi(main, epubPageMount.current)) ||
+          focusContinuationTarget(visible);
       if (!element || !target) {
         if (element) element.hidden = true;
         return;
@@ -883,9 +931,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve()),
       );
-      const contentTop =
-        firstVisibleEpubTextTop(preview, element) ??
-        preview.getRange(target).getBoundingClientRect().top;
+      const contentTop = preview.getRange(target).getBoundingClientRect().top;
       element.style.setProperty(
         '--epub-continuation-trim',
         `${focusContinuationTrim(contentTop)}px`,
