@@ -116,7 +116,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
-  const focusReflow = useRef(false);
+  const ignoreRelocatedUntil = useRef(0);
   const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
@@ -167,7 +167,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       return;
     if (epubReady.current) {
       layoutReflow.current.begin(current.current);
-      focusReflow.current = true;
+      ignoreRelocatedUntil.current = Date.now() + 1000;
       setSaveState('Fitting page…');
     }
     controlsVisibleRef.current = visible;
@@ -554,7 +554,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               cancelled ||
               !epubReady.current ||
               navigationPending.current ||
-              layoutReflow.current.pending
+              layoutReflow.current.pending ||
+              Date.now() < ignoreRelocatedUntil.current
             )
               return;
             setAtStart(loc.atStart);
@@ -616,6 +617,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
               restored.atEnd,
             );
+            // EPUB.js can emit another relocated event after its resize promise
+            // settles. It describes the same passage with a different viewport
+            // page number, so do not let it overwrite the anchored reader page.
+            ignoreRelocatedUntil.current = Date.now() + 500;
             requestedCfi.current = undefined;
             epubReady.current = true;
             setAtStart(restored.atStart);
@@ -871,15 +876,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 chapterData.current,
                 sectionCount,
                 settings.current.fontSize,
-                focusReflow.current || !controlsVisibleRef.current,
+                true,
               ),
             );
-            focusReflow.current = false;
+            // A later engine report still describes this anchored passage but
+            // can carry the other viewport's page number. Ignore that counter.
+            ignoreRelocatedUntil.current = Date.now() + 500;
             requestedCfi.current = undefined;
           }
         } catch {
           if (!cancelled && layoutReflow.current.finish(revision)) {
-            focusReflow.current = false;
             setSaveState('Page fitting failed — place kept');
             setError(
               'The page could not be fitted to the screen. Your saved place is unchanged.',

@@ -54,6 +54,8 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   newly opened space while anchoring the same passage and reader page number.
   The layout changes once rather than resizing throughout the animation. iPhone
   safe-area spacing keeps the first line below the status bar and Dynamic Island.
+  Delayed viewport reports also retain that page number; only an intentional
+  page turn or location jump changes the saved reader page.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
