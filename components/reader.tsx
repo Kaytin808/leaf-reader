@@ -62,7 +62,11 @@ import {
 } from '@/lib/chapters';
 import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
-import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
+import {
+  EpubReflow,
+  focusContinuationTarget,
+  positionAfterReflow,
+} from '@/lib/epub-reflow';
 import {
   reportLatestLocation,
   restoreEpubLocation,
@@ -84,6 +88,7 @@ import {
   type ReadingMargin,
   type ReadingSpacing,
   type ReadingTheme,
+  type ReadingPreferences,
 } from '@/lib/reading-settings';
 
 type Props = {
@@ -96,6 +101,48 @@ const palette = {
   sepia: { bg: '#f7eddc', fg: '#443b30' },
   night: { bg: '#182332', fg: '#dbe3ef' },
 };
+function styleEpub(
+  reader: Rendition,
+  preferences: Pick<
+    ReadingPreferences,
+    'theme' | 'fontSize' | 'font' | 'spacing' | 'margin' | 'alignment'
+  >,
+  reflowable: boolean,
+) {
+  const colors = palette[preferences.theme];
+  const typography = reflowable
+    ? {
+        'font-family': `${FONT_STACKS[preferences.font]} !important`,
+        'letter-spacing': `${LETTER_SPACING[preferences.font]} !important`,
+        'line-height': `${LINE_HEIGHTS[preferences.spacing]} !important`,
+        'text-align': `${preferences.alignment} !important`,
+        'padding-left': `${PAGE_MARGINS[preferences.margin]}px !important`,
+        'padding-right': `${PAGE_MARGINS[preferences.margin]}px !important`,
+        'margin-left': '0 !important',
+        'margin-right': '0 !important',
+        'box-sizing': 'border-box !important',
+      }
+    : {};
+  reader.themes.default({
+    body: {
+      color: `${colors.fg} !important`,
+      background: `${colors.bg} !important`,
+      ...typography,
+    },
+    ...(reflowable
+      ? {
+          p: {
+            'font-size': 'inherit !important',
+            'font-family': 'inherit !important',
+            'letter-spacing': 'inherit !important',
+            'line-height': 'inherit !important',
+            'text-align': 'inherit !important',
+          },
+        }
+      : {}),
+  });
+  if (reflowable) reader.themes.fontSize(`${preferences.fontSize}px`);
+}
 export default function Reader({ book, onClose, onUpdate }: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
@@ -104,6 +151,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     callback.current = onUpdate;
   }, [onUpdate]);
   const mount = useRef<HTMLElement>(null);
+  const epubPageMount = useRef<HTMLDivElement>(null);
+  const epubPreviewMount = useRef<HTMLDivElement>(null);
   const readerRoot = useRef<HTMLDivElement>(null);
   const readerHeader = useRef<HTMLElement>(null);
   const readerFooter = useRef<HTMLDivElement>(null);
@@ -112,11 +161,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const epub = useRef<Book | null>(null);
   const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
+  const previewRendition = useRef<Rendition | null>(null);
   const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
-  const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -164,15 +213,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const setReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible || navigationPending.current)
       return;
-    if (epubReady.current) {
-      layoutReflow.current.begin(current.current);
-      setSaveState('Fitting page…');
+    if (!visible && readerRoot.current && mount.current) {
+      readerRoot.current.style.setProperty(
+        '--reader-page-height',
+        `${Math.max(1, Math.round(mount.current.clientHeight))}px`,
+      );
     }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
-    // Wait for the single, non-animated grid resize, then restore the exact
-    // CFI that was at the start of the page before focus changed.
-    scheduleLayout.current(80);
     requestAnimationFrame(() =>
       (visible ? focusModeButton : showControlsButton).current?.focus({
         preventScroll: true,
@@ -464,20 +512,20 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             import('epubjs'),
             prepareEpub(await file.arrayBuffer()),
           ]);
-          if (cancelled || !mount.current) return;
+          if (cancelled || !epubPageMount.current) return;
           localBook = new EpubBook({ replacements: 'blobUrl' });
           epub.current = localBook;
           await localBook.open(bytes, 'binary');
           await localBook.ready;
           reflowableEpub.current =
             localBook.packaging.metadata.layout !== 'pre-paginated';
-          if (cancelled || !mount.current) return;
+          if (cancelled || !epubPageMount.current) return;
           const indexedChapters = await chapterIndex(localBook);
           if (cancelled || !mount.current) return;
           setChapters(indexedChapters);
           chapterData.current = indexedChapters;
           requestedCfi.current = initial.current.position.location || undefined;
-          const r = localBook.renderTo(mount.current, {
+          const r = localBook.renderTo(epubPageMount.current, {
             width: '100%',
             height: '100%',
             spread: 'none',
@@ -513,40 +561,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               contentListeners.delete(view.contents);
             }
           });
-          const colors = palette[settings.current.theme];
-          const typography = reflowableEpub.current
-            ? {
-                'font-family': `${FONT_STACKS[settings.current.font]} !important`,
-                'letter-spacing': `${LETTER_SPACING[settings.current.font]} !important`,
-                'line-height': `${LINE_HEIGHTS[settings.current.spacing]} !important`,
-                'text-align': `${settings.current.alignment} !important`,
-                'padding-left': `${PAGE_MARGINS[settings.current.margin]}px !important`,
-                'padding-right': `${PAGE_MARGINS[settings.current.margin]}px !important`,
-                'margin-left': '0 !important',
-                'margin-right': '0 !important',
-                'box-sizing': 'border-box !important',
-              }
-            : {};
-          r.themes.default({
-            body: {
-              color: `${colors.fg} !important`,
-              background: `${colors.bg} !important`,
-              ...typography,
-            },
-            ...(reflowableEpub.current
-              ? {
-                  p: {
-                    'font-size': 'inherit !important',
-                    'font-family': 'inherit !important',
-                    'letter-spacing': 'inherit !important',
-                    'line-height': 'inherit !important',
-                    'text-align': 'inherit !important',
-                  },
-                }
-              : {}),
-          });
-          if (reflowableEpub.current)
-            r.themes.fontSize(`${settings.current.fontSize}px`);
+          styleEpub(r, settings.current, reflowableEpub.current);
           r.on('relocated', (loc: Location) => {
             if (
               cancelled ||
@@ -598,8 +613,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           navigationPending.current = true;
           try {
             const restored = await restoreEpubLocation(r, resume, () => ({
-              width: cancelled ? 0 : (mount.current?.clientWidth ?? 0),
-              height: cancelled ? 0 : (mount.current?.clientHeight ?? 0),
+              width: cancelled ? 0 : (epubPageMount.current?.clientWidth ?? 0),
+              height: cancelled
+                ? 0
+                : (epubPageMount.current?.clientHeight ?? 0),
             }));
             if (cancelled) return;
             let sectionCount = 0;
@@ -819,8 +836,72 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     });
   }, [book.format, zoom, toggleControls]);
 
+  const updateFocusPreview = useCallback(async (location?: Location) => {
+    const preview = previewRendition.current;
+    const main = rendition.current;
+    if (!preview || !main) return;
+    try {
+      const visible = location ?? (await reportLatestLocation(main));
+      const target = focusContinuationTarget(visible);
+      if (target) await preview.display(target);
+      const element = epubPreviewMount.current;
+      if (element) element.hidden = !target;
+    } catch {
+      // The primary page remains fully usable if an unusual EPUB cannot render
+      // the optional focus continuation.
+    }
+  }, []);
+
   useEffect(() => {
-    if (book.format !== 'epub' || !mount.current) return;
+    if (
+      controlsVisible ||
+      book.format !== 'epub' ||
+      !epubReady.current ||
+      !epub.current ||
+      !epubPreviewMount.current
+    )
+      return;
+    let cancelled = false;
+    let preview: Rendition | undefined;
+    const openPreview = async () => {
+      try {
+        const { Rendition: EpubRendition } = await import('epubjs');
+        if (cancelled || !epub.current || !epubPreviewMount.current) return;
+        preview = new EpubRendition(epub.current, {
+          width: '100%',
+          height: '100%',
+          spread: 'none',
+          flow: 'paginated',
+          allowScriptedContent: false,
+        });
+        await preview.attachTo(epubPreviewMount.current);
+        if (cancelled) {
+          preview.destroy();
+          return;
+        }
+        styleEpub(preview, settings.current, reflowableEpub.current);
+        previewRendition.current = preview;
+        await updateFocusPreview();
+      } catch {
+        if (!cancelled && epubPreviewMount.current)
+          epubPreviewMount.current.hidden = true;
+      }
+    };
+    void openPreview();
+    return () => {
+      cancelled = true;
+      if (previewRendition.current === preview) previewRendition.current = null;
+      try {
+        preview?.destroy();
+      } catch {
+        /* A partially attached preview can already be gone. */
+      }
+    };
+  }, [book.format, controlsVisible, updateFocusPreview]);
+
+  useEffect(() => {
+    if (book.format !== 'epub' || !epubPageMount.current) return;
+    const observedPage = epubPageMount.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
@@ -829,7 +910,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
-        const area = mount.current;
+        const area = epubPageMount.current;
         const r = rendition.current;
         if (cancelled || !area || !r) return;
         if (!epubReady.current) return;
@@ -887,12 +968,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       };
       timer = setTimeout(() => void resizeAtCurrentPage(), delay);
     };
-    scheduleLayout.current = schedule;
     const observer = new ResizeObserver(() => schedule());
-    observer.observe(mount.current);
+    observer.observe(observedPage);
     return () => {
       cancelled = true;
-      scheduleLayout.current = () => {};
       observer.disconnect();
       clearTimeout(timer);
     };
@@ -926,6 +1005,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
           persistEpubLocation(location);
+          await updateFocusPreview(location);
           await writeQueue.current;
         }
       } catch {
@@ -1019,6 +1099,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         await rendition.current.display(location);
         const reported = await reportLatestLocation(rendition.current);
         persistEpubLocation(reported, requestedCfi.current);
+        await updateFocusPreview(reported);
         await writeQueue.current;
         const details = current.current.epubPage;
         if (
@@ -1214,6 +1295,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         aria-keyshortcuts="ArrowLeft ArrowRight Escape"
         style={{ background: palette[theme].bg, color: palette[theme].fg }}
       >
+        {book.format === 'epub' && (
+          <>
+            <div ref={epubPageMount} className="epub-primary-page" />
+            {!controlsVisible && (
+              <div className="epub-focus-continuation" aria-hidden="true">
+                <div ref={epubPreviewMount} className="epub-preview-page" />
+              </div>
+            )}
+          </>
+        )}
         {book.format === 'pdf' && !loading && pdf.current && (
           <PdfPage
             resetKey={zoomReset}
@@ -1572,10 +1663,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               {book.format === 'epub' && (
                 <p className="settings-note">
                   EPUB screen pages are counted within each book section, not a
-                  printed edition. Focus pages are taller, so their numbers can
-                  differ from normal pages. When the toolbars return, every
-                  hidden line is repaginated onto a visible page; no sentences
-                  are skipped. Bookmarks return to the exact passage.
+                  printed edition. Focus keeps the current page fixed and
+                  reveals the beginning of the following page in the freed
+                  toolbar space. Page numbers and text positions stay unchanged
+                  when the controls return.
                 </p>
               )}
             </div>

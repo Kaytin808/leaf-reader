@@ -50,14 +50,12 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   keyboard focus, an easy-read font, text sizes up to 40px, and automatic
   reduced-motion, increased-contrast, and forced-color support.
 - Normal mode measures and reserves space for both toolbars so they never cover
-  the page. Focus mode slides those toolbars away and fits more words into the
-  newly opened space while anchoring the same EPUB passage. Returning to normal
-  mode repaginates every sentence into the smaller, toolbar-safe page instead
-  of cropping text above or below the visible reading area.
-  The layout changes once rather than resizing throughout the animation. iPhone
-  safe-area spacing keeps the first line below the status bar and Dynamic Island.
-  Screen-page numbers can differ between focus and normal mode because those
-  pages hold different amounts of text; bookmarks and resume use the exact CFI.
+  the page. Focus mode keeps that EPUB page at exactly the same size and reveals
+  a clipped continuation beginning at the page's ending CFI in the space freed
+  by the toolbars. Because the underlying page never resizes, its number and
+  first sentence cannot change when focus opens or closes, and the revealed
+  continuation becomes the next complete page after a turn. iPhone safe-area
+  spacing keeps the first line below the status bar and Dynamic Island.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.

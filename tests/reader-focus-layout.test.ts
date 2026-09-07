@@ -64,6 +64,15 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
   assert.match(readingArea, /contain:\s*layout paint/);
   assert.match(rule('.reader-bottom'), /grid-row:\s*3/);
 
+  const primaryPage = rule('.epub-primary-page');
+  assert.match(primaryPage, /height:\s*100%/);
+  assert.match(primaryPage, /flex:\s*0 0 100%/);
+  const focusedPage = rule('.reader-focus .epub-primary-page');
+  assert.match(focusedPage, /--reader-page-height/);
+  const continuation = rule('.epub-focus-continuation');
+  assert.match(continuation, /overflow:\s*hidden/);
+  assert.match(continuation, /pointer-events:\s*none/);
+
   const recoveryControl = rule('.reader-show-controls');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
   assert.doesNotMatch(recoveryControl, /\btop:/);

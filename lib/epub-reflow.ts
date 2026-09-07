@@ -2,6 +2,10 @@ import type { Location } from 'epubjs/types/rendition';
 import type { Position } from './library';
 import { positionForEpub, repairChapterLabel, type Chapter } from './chapters';
 
+export function focusContinuationTarget(location: Location) {
+  return location.atEnd ? undefined : location.end.cfi;
+}
+
 // One anchor spans the whole animation, including rapid reversals. Each new
 // viewport invalidates an older asynchronous resize result.
 export class EpubReflow {

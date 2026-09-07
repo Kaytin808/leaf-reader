@@ -8,7 +8,11 @@ import {
 } from '../lib/epub-location';
 import { positionForEpub } from '../lib/chapters';
 import { addBook, updateBook, listBooks, deleteBook } from '../lib/library';
-import { EpubReflow, positionAfterReflow } from '../lib/epub-reflow';
+import {
+  EpubReflow,
+  focusContinuationTarget,
+  positionAfterReflow,
+} from '../lib/epub-reflow';
 
 const cfi = (page: number) => `epubcfi(/6/2!/4/2/1:${page * 100})`;
 function at(page: number): Location {
@@ -89,16 +93,9 @@ test('reading ahead after a viewport reflow becomes the next anchor', () => {
   assert.notEqual(restored.location, normal.location);
 });
 
-test('focus reflow keeps the passage while recalculating pages for each viewport', () => {
-  const normal = positionForEpub(at(40), [], 1, undefined, 20);
-  const focused = positionAfterReflow(at(32), normal, [], 1, 20);
-  assert.equal(focused.location, normal.location);
-  assert.equal(focused.progress, normal.progress);
-  assert.equal(focused.epubPage?.page, 32);
-  const restored = positionAfterReflow(at(40), focused, [], 1, 20);
-  assert.equal(restored.location, normal.location);
-  assert.equal(restored.progress, normal.progress);
-  assert.equal(restored.epubPage?.page, 40);
+test('focus continuation begins exactly where the fixed current page ends', () => {
+  assert.equal(focusContinuationTarget(at(40)), cfi(41));
+  assert.equal(focusContinuationTarget({ ...at(40), atEnd: true }), undefined);
 });
 
 test('fitting more text onto the final page does not mark the book complete', () => {
