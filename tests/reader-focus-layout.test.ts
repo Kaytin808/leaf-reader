@@ -10,6 +10,10 @@ const nativeCss = readFileSync(
   new URL('../mobile/native.css', import.meta.url),
   'utf8',
 );
+const readerSource = readFileSync(
+  new URL('../components/reader.tsx', import.meta.url),
+  'utf8',
+);
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -69,14 +73,13 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
   assert.match(primaryPage, /flex:\s*0 0 100%/);
   const focusedPage = rule('.reader-focus .epub-primary-page');
   assert.match(focusedPage, /--reader-page-height/);
-  const continuation = rule('.epub-focus-continuation');
-  assert.match(continuation, /overflow:\s*hidden/);
-  assert.match(continuation, /pointer-events:\s*none/);
-  assert.match(continuation, /--epub-continuation-overlap/);
-  assert.match(continuation, /margin-top/);
+  const focusPage = rule('.epub-focus-page');
+  assert.match(focusPage, /position:\s*absolute/);
+  assert.match(focusPage, /inset:\s*0/);
+  assert.match(focusPage, /overflow:\s*hidden/);
+  assert.match(focusPage, /pointer-events:\s*none/);
   const preview = rule('.epub-preview-page');
-  assert.match(preview, /--epub-continuation-trim/);
-  assert.match(preview, /translateY/);
+  assert.match(preview, /height:\s*100%/);
 
   const focusActions = rule('.reader-focus-actions');
   assert.match(focusActions, /safe-area-inset-bottom/);
@@ -89,4 +92,11 @@ test('native reader toolbars do not apply safe-area padding twice', () => {
   assert.match(nativeRule('.reader-bottom'), /padding-bottom:\s*7px/);
   assert.doesNotMatch(nativeRule('.reader-header'), /safe-area-inset-top/);
   assert.doesNotMatch(nativeRule('.reader-bottom'), /safe-area-inset-bottom/);
+});
+
+test('focus uses one continuous viewport and advances beyond all visible text', () => {
+  assert.match(readerSource, /flow:\s*'scrolled-doc'/);
+  assert.match(readerSource, /nextEpubTextCfi\(/);
+  assert.match(readerSource, /focusHistory\.current\.push/);
+  assert.doesNotMatch(readerSource, /epub-focus-continuation/);
 });
