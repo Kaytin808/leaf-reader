@@ -359,6 +359,9 @@ footer span {
   height: 100dvh;
   overflow: hidden;
 }
+.reader-focus {
+  grid-template-rows: 0 minmax(0, 1fr) 0;
+}
 .reader .icon-button {
   width: 44px;
   min-width: 44px;
@@ -708,6 +711,9 @@ footer span {
 }
 .reader-dialog {
   max-width: min(460px, calc(100vw - 32px)) !important;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 26px !important;
 }
 .settings-list {
@@ -727,6 +733,27 @@ footer span {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.setting-toggle > label {
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+}
+.setting-toggle small {
+  max-width: 280px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.setting-toggle [data-slot='switch'] {
+  min-width: 42px;
+  min-height: 24px;
+}
+.reader-lock-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 .settings-list [data-slot='select-trigger'] {
   min-width: 140px;

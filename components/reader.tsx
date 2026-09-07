@@ -25,6 +25,7 @@ import {
   Settings2,
   X,
   LoaderCircle,
+  LockKeyhole,
   Trash2,
 } from 'lucide-react';
 import {
@@ -42,6 +43,7 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import {
   getFile,
   updateBook,
@@ -114,6 +116,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
+  const focusReflow = useRef(false);
+  const scheduleLayout = useRef<(delay?: number) => void>(() => {});
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -147,13 +151,30 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [brightness, setBrightness] = useState(
     DEFAULT_READING_PREFERENCES.brightness,
   );
+  const [pageTurnsLocked, setPageTurnsLocked] = useState(
+    DEFAULT_READING_PREFERENCES.pageTurnsLocked,
+  );
+  const pageTurnsLockedRef = useRef(pageTurnsLocked);
+  pageTurnsLockedRef.current = pageTurnsLocked;
+  const [keepScreenAwake, setKeepScreenAwake] = useState(
+    DEFAULT_READING_PREFERENCES.keepScreenAwake,
+  );
+  const [keepAwakeAvailable, setKeepAwakeAvailable] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
   const setReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible || navigationPending.current)
       return;
+    if (epubReady.current) {
+      layoutReflow.current.begin(current.current);
+      focusReflow.current = true;
+      setSaveState('Fitting page…');
+    }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
+    // Wait for the single, non-animated grid resize, then restore the exact
+    // CFI that was at the start of the page before focus changed.
+    scheduleLayout.current(80);
     requestAnimationFrame(() =>
       (visible ? focusModeButton : showControlsButton).current?.focus({
         preventScroll: true,
@@ -372,6 +393,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setMargin(saved.margin);
       setAlignment(saved.alignment);
       setBrightness(saved.brightness);
+      setPageTurnsLocked(saved.pageTurnsLocked);
+      setKeepScreenAwake(saved.keepScreenAwake);
     } catch {
       /* Optional preferences. */
     }
@@ -644,12 +667,55 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           margin,
           alignment,
           brightness,
+          pageTurnsLocked,
+          keepScreenAwake,
         }),
       );
     } catch {
       /* Reading still works without preferences. */
     }
-  }, [theme, fontSize, font, spacing, margin, alignment, brightness]);
+  }, [
+    theme,
+    fontSize,
+    font,
+    spacing,
+    margin,
+    alignment,
+    brightness,
+    pageTurnsLocked,
+    keepScreenAwake,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let plugin: (typeof import('@capacitor-community/keep-awake'))['KeepAwake'];
+    const apply = async () => {
+      try {
+        ({ KeepAwake: plugin } =
+          await import('@capacitor-community/keep-awake'));
+        const { isSupported } = await plugin.isSupported();
+        if (cancelled) return;
+        setKeepAwakeAvailable(isSupported);
+        if (
+          isSupported &&
+          keepScreenAwake &&
+          document.visibilityState === 'visible'
+        )
+          await plugin.keepAwake();
+        else await plugin.allowSleep();
+      } catch {
+        if (!cancelled) setKeepAwakeAvailable(false);
+      }
+    };
+    const visibility = () => void apply();
+    void apply();
+    document.addEventListener('visibilitychange', visibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', visibility);
+      if (plugin) void plugin.allowSleep().catch(() => {});
+    };
+  }, [keepScreenAwake]);
 
   useEffect(() => {
     const r = rendition.current;
@@ -736,6 +802,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const area = mount.current;
     return bindReaderTaps(area, {
       enabled: () => !interaction.current.blocked,
+      canTurn: () => !pageTurnsLockedRef.current,
       bounds: () => area.getBoundingClientRect(),
       turn: (direction) => void turnRef.current(direction),
       center: toggleControls,
@@ -746,7 +813,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     if (!mount.current) return;
     return bindNativeReaderTaps(mount.current, {
       enabled: () => !interaction.current.blocked,
-      canTurn: () => book.format !== 'pdf' || zoom <= 1,
+      canTurn: () =>
+        !pageTurnsLockedRef.current && (book.format !== 'pdf' || zoom <= 1),
       turn: (direction) => void turnRef.current(direction),
       center: toggleControls,
       image: (image) => setPicture(image),
@@ -803,12 +871,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                 chapterData.current,
                 sectionCount,
                 settings.current.fontSize,
+                focusReflow.current || !controlsVisibleRef.current,
               ),
             );
+            focusReflow.current = false;
             requestedCfi.current = undefined;
           }
         } catch {
           if (!cancelled && layoutReflow.current.finish(revision)) {
+            focusReflow.current = false;
             setSaveState('Page fitting failed — place kept');
             setError(
               'The page could not be fitted to the screen. Your saved place is unchanged.',
@@ -821,10 +892,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       };
       timer = setTimeout(() => void resizeAtCurrentPage(), delay);
     };
+    scheduleLayout.current = schedule;
     const observer = new ResizeObserver(() => schedule());
     observer.observe(mount.current);
     return () => {
       cancelled = true;
+      scheduleLayout.current = () => {};
       observer.disconnect();
       clearTimeout(timer);
     };
@@ -839,6 +912,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       picture ||
       navigationPending.current ||
       layoutReflow.current.pending ||
+      pageTurnsLockedRef.current ||
       (direction < 0 && atStart) ||
       (direction > 0 && atEnd)
     )
@@ -856,7 +930,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           : rendition.current?.prev());
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
-          persistEpubLocation(location);
+          persistEpubLocation(
+            location,
+            undefined,
+            controlsVisibleRef.current ? undefined : direction,
+          );
           await writeQueue.current;
         }
       } catch {
@@ -976,21 +1054,33 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setTurning(false);
     }
   }
-  function persistEpubLocation(location: Location, target?: string) {
+  function persistEpubLocation(
+    location: Location,
+    target?: string,
+    focusPageStep?: -1 | 0 | 1,
+  ) {
     let sectionCount = 0;
     epub.current?.spine.each(() => sectionCount++);
     setAtStart(location.atStart);
     setAtEnd(location.atEnd);
-    save(
-      positionForEpub(
-        location,
-        chapters,
-        sectionCount,
-        target,
-        settings.current.fontSize,
-      ),
-      location.atEnd,
+    const next = positionForEpub(
+      location,
+      chapters,
+      sectionCount,
+      target,
+      settings.current.fontSize,
     );
+    if (focusPageStep !== undefined && current.current.epubPage) {
+      const previous = current.current.epubPage;
+      next.epubPage = {
+        ...previous,
+        page: Math.max(
+          1,
+          Math.min(previous.total, previous.page + focusPageStep),
+        ),
+      };
+    }
+    save(next, location.atEnd);
     if (!target || requestedCfi.current === target)
       requestedCfi.current = undefined;
   }
@@ -1011,6 +1101,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         persistEpubLocation(
           await reportLatestLocation(rendition.current),
           current.current.location,
+          controlsVisibleRef.current ? undefined : 0,
         );
       } else if (book.format !== 'epub' && !loading && total) {
         const finalPage = Math.max(1, Math.min(total, page));
@@ -1209,7 +1300,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           <button
             className="icon-button"
             aria-label="Previous page"
-            disabled={loading || atStart}
+            disabled={loading || atStart || pageTurnsLocked}
             onClick={() => void turn(-1)}
           >
             <ArrowLeft size={21} />
@@ -1259,12 +1350,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   isCompleted ? finishedReadingTime.current : readingTime,
                 )}
               </span>
+              {pageTurnsLocked && (
+                <span className="reader-lock-status">
+                  · <LockKeyhole size={12} /> Page turns locked
+                </span>
+              )}
             </small>
           </div>
           <button
             className="icon-button"
             aria-label="Next page"
-            disabled={loading || atEnd}
+            disabled={loading || atEnd || pageTurnsLocked}
             onClick={() => void turn(1)}
           >
             <ArrowRight size={21} />
@@ -1453,6 +1549,38 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   }
                 />
               </div>
+              <div className="setting-row setting-toggle">
+                <label htmlFor="page-turn-lock">
+                  <strong>Lock page turns</strong>
+                  <small>
+                    Stops side taps, swipes, arrows, and page buttons.
+                  </small>
+                </label>
+                <Switch
+                  id="page-turn-lock"
+                  checked={pageTurnsLocked}
+                  onCheckedChange={setPageTurnsLocked}
+                  aria-label="Lock page turns"
+                />
+              </div>
+              <div className="setting-row setting-toggle">
+                <label htmlFor="keep-screen-awake">
+                  <strong>Keep screen awake</strong>
+                  <small>Prevents auto-lock while this reader is open.</small>
+                </label>
+                <Switch
+                  id="keep-screen-awake"
+                  checked={keepScreenAwake}
+                  onCheckedChange={setKeepScreenAwake}
+                  disabled={!keepAwakeAvailable}
+                  aria-label="Keep screen awake"
+                />
+              </div>
+              {!keepAwakeAvailable && (
+                <p className="settings-note">
+                  Keep screen awake is not available on this device.
+                </p>
+              )}
               <p className="settings-note">
                 {book.format === 'pdf'
                   ? 'Pinch to zoom up to 400%, then drag to pan. Fit width resets the page. Side taps turn pages only at 100% zoom; center taps always show or hide controls.'

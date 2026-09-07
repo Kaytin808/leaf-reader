@@ -50,15 +50,19 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   keyboard focus, an easy-read font, text sizes up to 40px, and automatic
   reduced-motion, increased-contrast, and forced-color support.
 - Normal mode measures and reserves space for both toolbars so they never cover
-  the page. Focus mode slides those toolbars away without changing the reading
-  viewport, repaginating the EPUB, or saving a different page. iPhone safe-area
-  spacing keeps the first line below the status bar and Dynamic Island.
+  the page. Focus mode slides those toolbars away and fits more words into the
+  newly opened space while anchoring the same passage and reader page number.
+  The layout changes once rather than resizing throughout the animation. iPhone
+  safe-area spacing keeps the first line below the status bar and Dynamic Island.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
   Opening waits for the final viewport location before saving, and resize
   receives the same saved passage. Failed restoration leaves the saved place
   intact instead of silently opening and saving the beginning.
+- Reading Settings can lock every page-turn gesture and button while keeping
+  center taps available to restore the controls. An optional native keep-awake
+  switch prevents the iPhone from auto-locking while the reader is open.
   EPUB open targets are consumed once so an older CFI cannot overwrite a newer
   reading position; PDF and TXT pages also receive a final save on exit.
 - Native reader toolbars use the root safe area once, removing excess blank

@@ -15,6 +15,8 @@ test('reading preferences accept valid saved controls and normalize numeric valu
       margin: 'wide',
       alignment: 'justify',
       brightness: 83,
+      pageTurnsLocked: true,
+      keepScreenAwake: true,
     }),
     {
       theme: 'sepia',
@@ -24,6 +26,8 @@ test('reading preferences accept valid saved controls and normalize numeric valu
       margin: 'wide',
       alignment: 'justify',
       brightness: 85,
+      pageTurnsLocked: true,
+      keepScreenAwake: true,
     },
   );
 });

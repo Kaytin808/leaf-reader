@@ -12,6 +12,8 @@ export type ReadingPreferences = {
   margin: ReadingMargin;
   alignment: ReadingAlignment;
   brightness: number;
+  pageTurnsLocked: boolean;
+  keepScreenAwake: boolean;
 };
 
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
@@ -22,6 +24,8 @@ export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
   margin: 'standard',
   alignment: 'left',
   brightness: 100,
+  pageTurnsLocked: false,
+  keepScreenAwake: false,
 };
 
 export const FONT_STACKS: Record<ReadingFont, string> = {
@@ -85,5 +89,13 @@ export function normalizeReadingPreferences(
       typeof input.brightness === 'number'
         ? Math.max(50, Math.min(100, Math.round(input.brightness / 5) * 5))
         : 100,
+    pageTurnsLocked:
+      typeof input.pageTurnsLocked === 'boolean'
+        ? input.pageTurnsLocked
+        : false,
+    keepScreenAwake:
+      typeof input.keepScreenAwake === 'boolean'
+        ? input.keepScreenAwake
+        : false,
   };
 }

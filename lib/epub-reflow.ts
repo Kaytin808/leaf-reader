@@ -36,10 +36,12 @@ export function positionAfterReflow(
   chapters: Chapter[],
   sections: number,
   fontSize: number,
+  preservePageNumber = false,
 ): Position {
-  // Repagination changes screen-page numbers, not the passage or reading
-  // progress. In particular, fitting the last page is not finishing the book.
-  return repairChapterLabel(
+  // Repagination never changes the anchored passage or reading progress. A
+  // focus-only reflow can also retain the reader-facing page counter so merely
+  // showing or hiding controls cannot appear to move the reader backward.
+  const fitted = repairChapterLabel(
     {
       ...positionForEpub(location, chapters, sections, undefined, fontSize),
       location: anchor.location,
@@ -47,4 +49,7 @@ export function positionAfterReflow(
     },
     chapters,
   );
+  return preservePageNumber && anchor.epubPage
+    ? { ...fitted, epubPage: structuredClone(anchor.epubPage) }
+    : fitted;
 }
