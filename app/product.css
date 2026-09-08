@@ -455,6 +455,16 @@ footer span {
   flex: 0 0 100%;
   overflow: hidden;
 }
+.epub-focus-cache {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  z-index: -1;
+  visibility: hidden;
+  overflow: hidden;
+  contain: strict;
+  pointer-events: none;
+}
 .text-area {
   overflow: auto;
   overscroll-behavior: contain;
