@@ -110,17 +110,30 @@ test('focus requests made during navigation are queued and applied after saving'
     readerSource,
     /if \(navigationPending\.current\) \{\s*queuedControlsVisibility\.current = visible;/,
   );
-  assert.match(readerSource, /\[reader-focus\] toggle queued/);
   assert.match(
     readerSource,
     /await writeQueue\.current\.catch\(\(\) => \{\}\);\s*navigationPending\.current = false;/,
   );
   assert.match(
     readerSource,
-    /const queued = queuedControlsVisibility\.current;\s*if \(queued === null\) return;\s*queuedControlsVisibility\.current = null;\s*applyReaderControls\(queued, 'queued'\);/,
+    /const queued = queuedControlsVisibility\.current;\s*if \(queued === null\) return;\s*queuedControlsVisibility\.current = null;\s*applyReaderControls\(queued\);/,
   );
   assert.doesNotMatch(
     readerSource,
     /controlsVisibleRef\.current === visible \|\| navigationPending\.current/,
   );
+});
+
+test('focus captures its resize anchor only after navigation has settled', () => {
+  const pendingCheck = readerSource.indexOf(
+    'if (navigationPending.current)',
+    readerSource.indexOf('const schedule'),
+  );
+  const anchorCapture = readerSource.indexOf(
+    'layoutReflow.current.begin(current.current)',
+    readerSource.indexOf('const schedule'),
+  );
+  assert.ok(pendingCheck >= 0);
+  assert.ok(anchorCapture > pendingCheck);
+  assert.match(readerSource, /await resizeEpubAt\(/);
 });

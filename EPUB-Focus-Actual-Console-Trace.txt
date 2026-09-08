@@ -106,3 +106,35 @@ VALIDATION
     npm run typecheck     passed
     npm run lint          passed
     npm run build:mobile  passed
+
+
+FIXED REFLOW — ACTUAL FOLLOW-UP TRACE
+-------------------------------------
+
+The fix waits for the display internally queued by epub.js resize() before issuing
+the explicit display(anchor). It also captures the reflow anchor only after
+navigationPending is false.
+
+After advancing three pages, entering Focus produced:
+
+[reader-focus] toggle applied immediate {"visible":false,"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)"}
+[reader-cfi] layoutReflow.begin anchor captured {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","revision":1}
+[reader-cfi] rendition.resize target {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","width":1000,"height":692}
+[reader-cfi] rendition.display target {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)"}
+[reader-cfi] final CFI after reflow {"cfi":"epubcfi(/6/8!/4/2[calibre_pb_0]/1:0)","endCfi":"epubcfi(/6/8!/4/4/32/2/1:7)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","label":"Section 4","progress":6}
+
+The requested anchor at /4/4/24 lies inside the expanded Focus range from /4/2
+through /4/4/32. The reader therefore shows additional surrounding text while
+retaining the requested passage.
+
+Leaving Focus then produced:
+
+[reader-focus] toggle applied immediate {"visible":true,"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)"}
+[reader-cfi] layoutReflow.begin anchor captured {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","revision":2}
+[reader-cfi] rendition.resize target {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","width":1000,"height":508}
+[reader-cfi] rendition.display target {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)"}
+[reader-cfi] final CFI after reflow {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","endCfi":"epubcfi(/6/8!/4/4/48/2/1:7)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/8!/4/4/24/2/1:0)","label":"Section 4","progress":6}
+
+The normal-toolbar viewport starts at the exact saved anchor after leaving Focus.

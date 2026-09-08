@@ -205,33 +205,24 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
   const queuedControlsVisibility = useRef<boolean | null>(null);
-  const applyReaderControls = useCallback(
-    (visible: boolean, source: 'immediate' | 'queued') => {
-      if (controlsVisibleRef.current === visible) return;
-      console.info(
-        `[reader-focus] toggle applied ${source} ${JSON.stringify({ visible, cfi: current.current.location })}`,
-      );
-      controlsVisibleRef.current = visible;
-      setControlsVisible(visible);
-      requestAnimationFrame(() =>
-        (visible ? focusModeButton : showControlsButton).current?.focus({
-          preventScroll: true,
-        }),
-      );
-    },
-    [],
-  );
+  const applyReaderControls = useCallback((visible: boolean) => {
+    if (controlsVisibleRef.current === visible) return;
+    controlsVisibleRef.current = visible;
+    setControlsVisible(visible);
+    requestAnimationFrame(() =>
+      (visible ? focusModeButton : showControlsButton).current?.focus({
+        preventScroll: true,
+      }),
+    );
+  }, []);
   const setReaderControls = useCallback(
     (visible: boolean) => {
       if (navigationPending.current) {
         queuedControlsVisibility.current = visible;
-        console.info(
-          `[reader-focus] toggle queued ${JSON.stringify({ visible, cfi: current.current.location })}`,
-        );
         return;
       }
       queuedControlsVisibility.current = null;
-      applyReaderControls(visible, 'immediate');
+      applyReaderControls(visible);
     },
     [applyReaderControls],
   );
@@ -241,7 +232,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const queued = queuedControlsVisibility.current;
     if (queued === null) return;
     queuedControlsVisibility.current = null;
-    applyReaderControls(queued, 'queued');
+    applyReaderControls(queued);
   }, [applyReaderControls]);
   const toggleControls = useCallback(
     () =>
@@ -347,9 +338,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       elapsed,
     );
     current.current = normalized;
-    console.info(
-      `[reader-cfi] current.current assigned ${JSON.stringify({ cfi: normalized.location, label: normalized.label, progress: normalized.progress })}`,
-    );
     setPosition(normalized);
     setSaveState('Saving…');
     writeQueue.current = writeQueue.current
@@ -866,10 +854,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
-      const revision = layoutReflow.current.begin(current.current);
-      console.info(
-        `[reader-cfi] layoutReflow.begin anchor captured ${JSON.stringify({ cfi: current.current.location, revision })}`,
-      );
       setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
@@ -881,6 +865,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
         }
+        layoutReflow.current.begin(current.current);
         const snapshot = layoutReflow.current.snapshot();
         if (!snapshot) return;
         const { anchor, revision } = snapshot;
@@ -888,25 +873,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = true;
         setTurning(true);
         try {
-          console.info(
-            `[reader-cfi] rendition.resize target ${JSON.stringify({ cfi: previous, width: area.clientWidth, height: area.clientHeight })}`,
-          );
-          resizeEpubAt(
+          await resizeEpubAt(
             r,
             area.clientWidth,
             area.clientHeight,
             previous || undefined,
           );
           if (previous) {
-            console.info(
-              `[reader-cfi] rendition.display target ${JSON.stringify({ cfi: previous })}`,
-            );
             await r.display(previous);
           }
           const reported = await reportLatestLocation(r);
-          console.info(
-            `[reader-cfi] final CFI after reflow ${JSON.stringify({ cfi: reported.start.cfi, endCfi: reported.end.cfi })}`,
-          );
           if (
             !cancelled &&
             rendition.current === r &&
@@ -974,21 +950,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       navigationPending.current = true;
       try {
         const reader = rendition.current;
-        console.info(
-          `[reader-cfi] before next()/prev() ${JSON.stringify({ direction, cfi: current.current.location })}`,
-        );
         await (direction > 0 ? reader?.next() : reader?.prev());
         if (reader) {
-          const afterTurn = reader.currentLocation() as unknown as
-            | Location
-            | undefined;
-          console.info(
-            `[reader-cfi] currentLocation after next()/prev() ${JSON.stringify({ cfi: afterTurn?.start?.cfi, endCfi: afterTurn?.end?.cfi })}`,
-          );
           const location = await reportLatestLocation(reader);
-          console.info(
-            `[reader-cfi] reportLatestLocation result ${JSON.stringify({ cfi: location.start.cfi, endCfi: location.end.cfi })}`,
-          );
           persistEpubLocation(location);
         }
         if (reader) {

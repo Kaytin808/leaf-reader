@@ -4,14 +4,12 @@ import 'fake-indexeddb/auto';
 import type { Location } from 'epubjs/types/rendition';
 import {
   reportLatestLocation,
+  resizeEpubAt,
   restoreEpubLocation,
 } from '../lib/epub-location';
 import { positionForEpub } from '../lib/chapters';
 import { addBook, updateBook, listBooks, deleteBook } from '../lib/library';
-import {
-  EpubReflow,
-  positionAfterReflow,
-} from '../lib/epub-reflow';
+import { EpubReflow, positionAfterReflow } from '../lib/epub-reflow';
 
 const cfi = (page: number) => `epubcfi(/6/2!/4/2/1:${page * 100})`;
 function at(page: number): Location {
@@ -137,6 +135,41 @@ test('location capture waits for its queued report instead of accepting an older
   assert.equal(resolved, false, 'Wait for the animation-frame report');
   frames.shift()!(0);
   assert.equal((await reading).start.displayed.page, 45);
+});
+
+test('resize waits for epubjs internal redisplay before another display can start', async () => {
+  const order: string[] = [];
+  let finishInternalDisplay!: () => void;
+  const internalDisplay = new Promise<void>((resolve) => {
+    finishInternalDisplay = resolve;
+  });
+  const resizing = resizeEpubAt(
+    {
+      resize: (_width, _height, target) => {
+        order.push(`resize:${target}`);
+      },
+      q: {
+        enqueue: async (task) => {
+          order.push('barrier:waiting');
+          await internalDisplay;
+          order.push('barrier:released');
+          return task();
+        },
+      },
+    },
+    390,
+    700,
+    cfi(45),
+  );
+  await Promise.resolve();
+  assert.deepEqual(order, [`resize:${cfi(45)}`, 'barrier:waiting']);
+  finishInternalDisplay();
+  await resizing;
+  assert.deepEqual(order, [
+    `resize:${cfi(45)}`,
+    'barrier:waiting',
+    'barrier:released',
+  ]);
 });
 
 test('save 45 after 37, reopen from storage, and resize to the latest saved passage', async () => {
