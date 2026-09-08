@@ -161,6 +161,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const navigationPending = useRef(false);
   const [position, setPosition] = useState(book.position);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -202,19 +204,50 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [keepAwakeAvailable, setKeepAwakeAvailable] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
-  const setReaderControls = useCallback((visible: boolean) => {
-    if (controlsVisibleRef.current === visible || navigationPending.current)
-      return;
-    controlsVisibleRef.current = visible;
-    setControlsVisible(visible);
-    requestAnimationFrame(() =>
-      (visible ? focusModeButton : showControlsButton).current?.focus({
-        preventScroll: true,
-      }),
-    );
-  }, []);
+  const queuedControlsVisibility = useRef<boolean | null>(null);
+  const applyReaderControls = useCallback(
+    (visible: boolean, source: 'immediate' | 'queued') => {
+      if (controlsVisibleRef.current === visible) return;
+      console.info(
+        `[reader-focus] toggle applied ${source} ${JSON.stringify({ visible, cfi: current.current.location })}`,
+      );
+      controlsVisibleRef.current = visible;
+      setControlsVisible(visible);
+      requestAnimationFrame(() =>
+        (visible ? focusModeButton : showControlsButton).current?.focus({
+          preventScroll: true,
+        }),
+      );
+    },
+    [],
+  );
+  const setReaderControls = useCallback(
+    (visible: boolean) => {
+      if (navigationPending.current) {
+        queuedControlsVisibility.current = visible;
+        console.info(
+          `[reader-focus] toggle queued ${JSON.stringify({ visible, cfi: current.current.location })}`,
+        );
+        return;
+      }
+      queuedControlsVisibility.current = null;
+      applyReaderControls(visible, 'immediate');
+    },
+    [applyReaderControls],
+  );
+  const finishNavigation = useCallback(async () => {
+    await writeQueue.current.catch(() => {});
+    navigationPending.current = false;
+    const queued = queuedControlsVisibility.current;
+    if (queued === null) return;
+    queuedControlsVisibility.current = null;
+    applyReaderControls(queued, 'queued');
+  }, [applyReaderControls]);
   const toggleControls = useCallback(
-    () => setReaderControls(!controlsVisibleRef.current),
+    () =>
+      setReaderControls(
+        !(queuedControlsVisibility.current ?? controlsVisibleRef.current),
+      ),
     [setReaderControls],
   );
   useLayoutEffect(() => {
@@ -269,11 +302,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [readingTime, setReadingTime] = useState(
     book.finishedReadingTimeMs ?? book.readingTimeMs ?? 0,
   );
-  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   interaction.current.blocked =
     loading || turning || closing || !!panel || !!picture;
   const requestedCfi = useRef<string | undefined>(undefined);
-  const navigationPending = useRef(false);
   const previousAppTheme = useRef(appTheme.theme);
   const storedReaderTheme = useRef(false);
   useEffect(() => {
@@ -316,6 +347,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       elapsed,
     );
     current.current = normalized;
+    console.info(
+      `[reader-cfi] current.current assigned ${JSON.stringify({ cfi: normalized.location, label: normalized.label, progress: normalized.progress })}`,
+    );
     setPosition(normalized);
     setSaveState('Saving…');
     writeQueue.current = writeQueue.current
@@ -622,7 +656,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             setAtEnd(restored.atEnd);
             setLoading(false);
           } finally {
-            navigationPending.current = false;
+            await finishNavigation();
           }
         }
       } catch (e) {
@@ -653,7 +687,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [save, toggleControls]);
+  }, [finishNavigation, save, toggleControls]);
 
   useEffect(() => {
     try {
@@ -764,7 +798,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             'Could not finish resizing the text. Try adjusting the text size again.',
           );
       } finally {
-        navigationPending.current = false;
+        await finishNavigation();
         if (rendition.current === r) setTurning(false);
       }
     };
@@ -774,7 +808,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [theme, fontSize, font, spacing, margin, alignment, save]);
+  }, [
+    theme,
+    fontSize,
+    font,
+    spacing,
+    margin,
+    alignment,
+    finishNavigation,
+    save,
+  ]);
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
@@ -823,7 +866,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
-      layoutReflow.current.begin(current.current);
+      const revision = layoutReflow.current.begin(current.current);
+      console.info(
+        `[reader-cfi] layoutReflow.begin anchor captured ${JSON.stringify({ cfi: current.current.location, revision })}`,
+      );
       setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
@@ -842,14 +888,25 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = true;
         setTurning(true);
         try {
+          console.info(
+            `[reader-cfi] rendition.resize target ${JSON.stringify({ cfi: previous, width: area.clientWidth, height: area.clientHeight })}`,
+          );
           resizeEpubAt(
             r,
             area.clientWidth,
             area.clientHeight,
             previous || undefined,
           );
-          if (previous) await r.display(previous);
+          if (previous) {
+            console.info(
+              `[reader-cfi] rendition.display target ${JSON.stringify({ cfi: previous })}`,
+            );
+            await r.display(previous);
+          }
           const reported = await reportLatestLocation(r);
+          console.info(
+            `[reader-cfi] final CFI after reflow ${JSON.stringify({ cfi: reported.start.cfi, endCfi: reported.end.cfi })}`,
+          );
           if (
             !cancelled &&
             rendition.current === r &&
@@ -879,7 +936,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             );
           }
         } finally {
-          navigationPending.current = false;
+          await finishNavigation();
           if (!cancelled && rendition.current === r) setTurning(false);
         }
       };
@@ -892,7 +949,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [book.format, save]);
+  }, [book.format, finishNavigation, save]);
 
   async function turn(direction: -1 | 1) {
     if (
@@ -917,9 +974,21 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       navigationPending.current = true;
       try {
         const reader = rendition.current;
+        console.info(
+          `[reader-cfi] before next()/prev() ${JSON.stringify({ direction, cfi: current.current.location })}`,
+        );
         await (direction > 0 ? reader?.next() : reader?.prev());
         if (reader) {
+          const afterTurn = reader.currentLocation() as unknown as
+            | Location
+            | undefined;
+          console.info(
+            `[reader-cfi] currentLocation after next()/prev() ${JSON.stringify({ cfi: afterTurn?.start?.cfi, endCfi: afterTurn?.end?.cfi })}`,
+          );
           const location = await reportLatestLocation(reader);
+          console.info(
+            `[reader-cfi] reportLatestLocation result ${JSON.stringify({ cfi: location.start.cfi, endCfi: location.end.cfi })}`,
+          );
           persistEpubLocation(location);
         }
         if (reader) {
@@ -928,7 +997,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       } catch {
         setError('Could not turn this page. Try the chapter list.');
       } finally {
-        navigationPending.current = false;
+        await finishNavigation();
         setTurning(false);
       }
     } else setPage((p) => Math.max(1, Math.min(total, p + direction)));
@@ -1038,7 +1107,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     } catch {
       setError('This saved location could not be opened.');
     } finally {
-      navigationPending.current = false;
+      await finishNavigation();
       setTurning(false);
     }
   }
@@ -1096,7 +1165,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         'Your current place has not finished saving. Please try returning to the library again.',
       );
     } finally {
-      navigationPending.current = false;
+      await finishNavigation();
       setClosing(false);
     }
   }

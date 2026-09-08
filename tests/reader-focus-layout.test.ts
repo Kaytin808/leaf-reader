@@ -91,10 +91,36 @@ test('focus reuses the single EPUB rendition instead of mounting a preview', () 
   assert.equal(readerSource.match(/renderTo\(/g)?.length, 1);
   assert.doesNotMatch(readerSource, /new EpubRendition|previewRendition/);
   assert.doesNotMatch(readerSource, /epub-focus-page|epubPreviewMount/);
-  assert.doesNotMatch(readerSource, /!controlsVisible\s*&&\s*\(\s*<div\s+className="reader-focus-actions"/);
+  assert.doesNotMatch(
+    readerSource,
+    /!controlsVisible\s*&&\s*\(\s*<div\s+className="reader-focus-actions"/,
+  );
   assert.match(
     readerSource,
     /\{book\.format === 'epub' && \(\s*<div ref=\{epubPageMount\} className="epub-primary-page" \/>\s*\)\}/,
   );
-  assert.match(readerSource, /direction > 0 \? reader\?\.next\(\) : reader\?\.prev\(\)/);
+  assert.match(
+    readerSource,
+    /direction > 0 \? reader\?\.next\(\) : reader\?\.prev\(\)/,
+  );
+});
+
+test('focus requests made during navigation are queued and applied after saving', () => {
+  assert.match(
+    readerSource,
+    /if \(navigationPending\.current\) \{\s*queuedControlsVisibility\.current = visible;/,
+  );
+  assert.match(readerSource, /\[reader-focus\] toggle queued/);
+  assert.match(
+    readerSource,
+    /await writeQueue\.current\.catch\(\(\) => \{\}\);\s*navigationPending\.current = false;/,
+  );
+  assert.match(
+    readerSource,
+    /const queued = queuedControlsVisibility\.current;\s*if \(queued === null\) return;\s*queuedControlsVisibility\.current = null;\s*applyReaderControls\(queued, 'queued'\);/,
+  );
+  assert.doesNotMatch(
+    readerSource,
+    /controlsVisibleRef\.current === visible \|\| navigationPending\.current/,
+  );
 });

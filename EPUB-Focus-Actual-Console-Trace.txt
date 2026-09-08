@@ -1,0 +1,108 @@
+KAYLA'S LIBRARY — ACTUAL EPUB FOCUS TEST CONSOLE OUTPUT
+=======================================================
+
+Test input:
+Fourth Wing by Rebecca Yarros (user-supplied local EPUB)
+
+Test environment:
+Instrumented local browser build at http://localhost:3000/
+
+The supplied EPUB was imported only into local browser storage. It was not copied
+into or uploaded with the repository.
+
+
+ACTUAL THREE-PAGE TURN AND FOCUS REFLOW TRACE
+---------------------------------------------
+
+[reader-cfi] before next()/prev() {"direction":1,"cfi":"epubcfi(/6/2!/4/1:0)"}
+[reader-cfi] currentLocation after next()/prev() {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/10/1:50)"}
+[reader-cfi] reportLatestLocation result {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/10/1:50)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/2/1:0)","label":"Section 2","progress":2}
+
+[reader-cfi] before next()/prev() {"direction":1,"cfi":"epubcfi(/6/4!/4/2/1:0)"}
+[reader-cfi] currentLocation after next()/prev() {"cfi":"epubcfi(/6/4!/4/12/1:0)","endCfi":"epubcfi(/6/4!/4/30/1:92)"}
+[reader-cfi] reportLatestLocation result {"cfi":"epubcfi(/6/4!/4/12/1:0)","endCfi":"epubcfi(/6/4!/4/30/1:92)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/12/1:0)","label":"Section 2","progress":2}
+
+[reader-cfi] before next()/prev() {"direction":1,"cfi":"epubcfi(/6/4!/4/12/1:0)"}
+[reader-cfi] currentLocation after next()/prev() {"cfi":"epubcfi(/6/4!/4/30/1:93)","endCfi":"epubcfi(/6/4!/4/32/3:11)"}
+[reader-cfi] reportLatestLocation result {"cfi":"epubcfi(/6/4!/4/30/1:93)","endCfi":"epubcfi(/6/4!/4/32/3:11)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/30/1:93)","label":"Section 2","progress":3}
+
+[reader-focus] toggle applied immediate {"visible":false,"cfi":"epubcfi(/6/4!/4/30/1:93)"}
+[reader-cfi] layoutReflow.begin anchor captured {"cfi":"epubcfi(/6/4!/4/30/1:93)","revision":3}
+[reader-cfi] rendition.resize target {"cfi":"epubcfi(/6/4!/4/30/1:93)","width":1000,"height":692}
+[reader-cfi] rendition.display target {"cfi":"epubcfi(/6/4!/4/30/1:93)"}
+[reader-cfi] final CFI after reflow {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/20/3:11)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/30/1:93)","label":"Section 2","progress":3}
+
+
+ACTUAL QUEUED FOCUS TEST TRACE
+------------------------------
+
+For this test only, a localhost query-parameter test harness temporarily delayed
+the page turn for five seconds so the Focus request deterministically landed while
+navigationPending.current was true. That artificial delay was removed immediately
+after the trace was captured. It is not present in the committed reader code.
+
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/2!/4/1:0)","label":"Section 1","progress":0}
+[reader-cfi] before next()/prev() {"direction":1,"cfi":"epubcfi(/6/2!/4/1:0)"}
+[reader-focus] toggle queued {"visible":false,"cfi":"epubcfi(/6/2!/4/1:0)"}
+[reader-cfi] currentLocation after next()/prev() {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/10/1:50)"}
+[reader-cfi] reportLatestLocation result {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/10/1:50)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/2/1:0)","label":"Section 2","progress":2}
+[reader-focus] toggle applied queued {"visible":false,"cfi":"epubcfi(/6/4!/4/2/1:0)"}
+[reader-cfi] layoutReflow.begin anchor captured {"cfi":"epubcfi(/6/4!/4/2/1:0)","revision":1}
+[reader-cfi] rendition.resize target {"cfi":"epubcfi(/6/4!/4/2/1:0)","width":1000,"height":692}
+[reader-cfi] rendition.display target {"cfi":"epubcfi(/6/4!/4/2/1:0)"}
+[reader-cfi] final CFI after reflow {"cfi":"epubcfi(/6/4!/4/2/1:0)","endCfi":"epubcfi(/6/4!/4/20/3:11)"}
+[reader-cfi] current.current assigned {"cfi":"epubcfi(/6/4!/4/2/1:0)","label":"Section 2","progress":2}
+
+
+OBSERVED RESULT
+---------------
+
+Three-page Focus reflow:
+
+The final production-equivalent three-page test exposed a separate reflow problem.
+The saved anchor and both requested targets were:
+
+    epubcfi(/6/4!/4/30/1:93)
+
+But the final visible range reported by epub.js was:
+
+    start: epubcfi(/6/4!/4/2/1:0)
+    end:   epubcfi(/6/4!/4/20/3:11)
+
+The requested anchor at node 30 is outside that final reported range, which confirms
+that the visible rendition did not settle on the requested passage. The application
+kept current.current at the correct anchor, but the visible EPUB surface moved to an
+earlier page. This is separate from the silent-toggle bug and is not hidden or
+described as passing in this report.
+
+Queued Focus request:
+
+The Focus request was queued while the saved ref still contained:
+
+    epubcfi(/6/2!/4/1:0)
+
+The page turn then settled and synchronously assigned:
+
+    epubcfi(/6/4!/4/2/1:0)
+
+Only after the position write settled was the queued Focus request applied. The
+reflow anchor, resize target, display target, and final visible start CFI all used:
+
+    epubcfi(/6/4!/4/2/1:0)
+
+The queued Focus toggle therefore used the newly saved page instead of the stale
+pre-turn page.
+
+
+VALIDATION
+----------
+
+    npm test              42 passed, 0 failed
+    npm run typecheck     passed
+    npm run lint          passed
+    npm run build:mobile  passed
