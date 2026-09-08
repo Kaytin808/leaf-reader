@@ -578,8 +578,11 @@ footer span {
   z-index: 30;
   right: 12px;
   bottom: calc(env(safe-area-inset-bottom) + 12px);
-  display: flex;
+  display: none;
   gap: 8px;
+}
+.reader-focus .reader-focus-actions {
+  display: flex;
 }
 .reader-show-controls,
 .reader-focus-lock {

@@ -1191,35 +1191,31 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           </button>
         </div>
       </header>
-      {!controlsVisible && (
-        <div
-          className="reader-focus-actions"
-          role="toolbar"
-          aria-label="Focus reading tools"
+      <div
+        className="reader-focus-actions"
+        role="toolbar"
+        aria-label="Focus reading tools"
+      >
+        <button
+          className={`reader-focus-lock ${pageTurnsLocked ? 'is-marked' : ''}`}
+          aria-label={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
+          title={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
+          aria-pressed={pageTurnsLocked}
+          onClick={() => setPageTurnsLocked((locked) => !locked)}
         >
-          <button
-            className={`reader-focus-lock ${pageTurnsLocked ? 'is-marked' : ''}`}
-            aria-label={
-              pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'
-            }
-            title={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
-            aria-pressed={pageTurnsLocked}
-            onClick={() => setPageTurnsLocked((locked) => !locked)}
-          >
-            <LockKeyhole size={18} />
-          </button>
-          <button
-            ref={showControlsButton}
-            className="reader-show-controls"
-            aria-label="Show reading controls"
-            title="Show reading controls"
-            onClick={() => setReaderControls(true)}
-          >
-            <Eye size={18} />
-            <span className="sr-only">Controls</span>
-          </button>
-        </div>
-      )}
+          <LockKeyhole size={18} />
+        </button>
+        <button
+          ref={showControlsButton}
+          className="reader-show-controls"
+          aria-label="Show reading controls"
+          title="Show reading controls"
+          onClick={() => setReaderControls(true)}
+        >
+          <Eye size={18} />
+          <span className="sr-only">Controls</span>
+        </button>
+      </div>
       {error && (
         <div className="reader-error" role="alert">
           {error}

@@ -75,8 +75,9 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
 
   const focusActions = rule('.reader-focus-actions');
   assert.match(focusActions, /safe-area-inset-bottom/);
-  assert.match(focusActions, /display:\s*flex/);
+  assert.match(focusActions, /display:\s*none/);
   assert.doesNotMatch(focusActions, /\btop:/);
+  assert.match(rule('.reader-focus .reader-focus-actions'), /display:\s*flex/);
 });
 
 test('native reader toolbars do not apply safe-area padding twice', () => {
@@ -90,5 +91,10 @@ test('focus reuses the single EPUB rendition instead of mounting a preview', () 
   assert.equal(readerSource.match(/renderTo\(/g)?.length, 1);
   assert.doesNotMatch(readerSource, /new EpubRendition|previewRendition/);
   assert.doesNotMatch(readerSource, /epub-focus-page|epubPreviewMount/);
+  assert.doesNotMatch(readerSource, /!controlsVisible\s*&&\s*\(\s*<div\s+className="reader-focus-actions"/);
+  assert.match(
+    readerSource,
+    /\{book\.format === 'epub' && \(\s*<div ref=\{epubPageMount\} className="epub-primary-page" \/>\s*\)\}/,
+  );
   assert.match(readerSource, /direction > 0 \? reader\?\.next\(\) : reader\?\.prev\(\)/);
 });
