@@ -362,6 +362,11 @@ footer span {
 .reader-focus {
   grid-template-rows: 14px minmax(0, 1fr) 14px;
 }
+.reader-focus.reader-focus-deferred {
+  grid-template-rows:
+    var(--reader-header-height, 78px) minmax(0, 1fr)
+    var(--reader-footer-height, 126px);
+}
 .reader .icon-button {
   width: 44px;
   min-width: 44px;

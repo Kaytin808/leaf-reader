@@ -50,6 +50,14 @@ test('focus expands into toolbar rows without entering the iPhone safe areas', (
     rule('.reader-focus'),
     /grid-template-rows:\s*14px\s+minmax\(0,\s*1fr\)\s+14px/,
   );
+  assert.match(
+    rule('.reader-focus.reader-focus-deferred'),
+    /--reader-header-height/,
+  );
+  assert.match(
+    rule('.reader-focus.reader-focus-deferred'),
+    /--reader-footer-height/,
+  );
 
   for (const selector of [
     '.reader-focus .reader-header',
@@ -108,7 +116,7 @@ test('focus reuses the single EPUB rendition instead of mounting a preview', () 
 test('focus requests made during navigation are queued and applied after saving', () => {
   assert.match(
     readerSource,
-    /if \(navigationPending\.current\) \{\s*queuedControlsVisibility\.current = visible;/,
+    /navigationPending\.current \|\|[\s\S]*?focusExpansionPending\.current[\s\S]*?queuedControlsVisibility\.current = visible;/,
   );
   assert.match(
     readerSource,
@@ -124,7 +132,7 @@ test('focus requests made during navigation are queued and applied after saving'
   );
 });
 
-test('focus captures its resize anchor only after navigation has settled', () => {
+test('focus measures visual undershoot and defers expansion without page correction', () => {
   const pendingCheck = readerSource.indexOf(
     'if (navigationPending.current)',
     readerSource.indexOf('const schedule'),
@@ -141,7 +149,7 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   );
   assert.match(
     readerSource,
-    /if \(!visible && initial\.current\.format === 'epub'\)[\s\S]*?focusPassageCfi\.current =[\s\S]*?liveLocation\?\.start\?\.cfi/,
+    /if \(!visible && isEpub\)[\s\S]*?focusPassageCfi\.current =[\s\S]*?liveLocation\?\.start\?\.cfi/,
   );
   assert.match(
     readerSource,
@@ -153,11 +161,11 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   );
   assert.match(
     readerSource,
-    /await resizeEpubAt\([\s\S]*?area\.clientHeight,\s*resizeCfi,\s*\);\s*await r\.display\(resizeCfi\);/,
+    /await resizeEpubAt\(r,\s*area\.clientWidth,\s*area\.clientHeight,\s*resizeCfi\);\s*await r\.display\(resizeCfi\);/,
   );
   assert.match(
     readerSource,
-    /await r\.display\(resizeCfi\);\s*let restoredLocation = r\.currentLocation\(\)/,
+    /await r\.display\(resizeCfi\);\s*const restoredLocation = r\.currentLocation\(\)/,
   );
   assert.match(
     readerSource,
@@ -165,15 +173,28 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   );
   assert.match(
     readerSource,
-    /startComparison !== undefined && startComparison > 0[\s\S]*?\? 'previous'[\s\S]*?startComparison < 0 &&[\s\S]*?endComparison <= 0[\s\S]*?\? 'next'/,
+    /measureFocusTarget\(r, resizeCfi, restoredStartCfi\)/,
   );
   assert.match(
     readerSource,
-    /if \(correctionDirection === 'next'\) await r\.next\(\);\s*else await r\.prev\(\);/,
+    /targetOffsetPx: roundedMetric\(metrics\.targetOffsetPx\)/,
   );
+  assert.match(
+    readerSource,
+    /undershootLines: roundedMetric\(metrics\.undershootLines\)/,
+  );
+  assert.match(
+    readerSource,
+    /focusTransition === 'entry' && !metrics\.withinTolerance/,
+  );
+  assert.match(readerSource, /focusResizeTransition\.current = 'rollback'/);
+  assert.match(
+    readerSource,
+    /focusResizeTransition\.current = 'deferred-after-turn'/,
+  );
+  assert.doesNotMatch(readerSource, /correctionDirection/);
   assert.match(readerSource, /transition: focusTransition/);
-  assert.match(readerSource, /\[reader-focus-cfi\] restore verification/);
-  assert.match(readerSource, /\[reader-focus-cfi\] correction verification/);
+  assert.match(readerSource, /\[reader-focus-cfi\] visual verification/);
   assert.doesNotMatch(readerSource, /const previous = anchor\.location/);
   assert.match(readerSource, /await resizeEpubAt\(/);
 });

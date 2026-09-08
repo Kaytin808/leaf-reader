@@ -64,6 +64,10 @@ import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
 import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
+  evaluateFocusRestore,
+  FOCUS_UNDERSHOOT_TOLERANCE_LINES,
+} from '@/lib/epub-focus';
+import {
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
@@ -97,6 +101,64 @@ const palette = {
   sepia: { bg: '#f7eddc', fg: '#443b30' },
   night: { bg: '#182332', fg: '#dbe3ef' },
 };
+
+type FocusResizeTransition =
+  | 'entry'
+  | 'exit'
+  | 'rollback'
+  | 'deferred-after-turn'
+  | 'layout';
+
+function measurableRangeRect(range: Range) {
+  const measured = range.cloneRange();
+  if (
+    measured.collapsed &&
+    measured.startContainer.nodeType === Node.TEXT_NODE
+  ) {
+    const text = measured.startContainer.textContent ?? '';
+    if (measured.startOffset < text.length)
+      measured.setEnd(measured.startContainer, measured.startOffset + 1);
+    else if (measured.startOffset > 0)
+      measured.setStart(measured.startContainer, measured.startOffset - 1);
+  }
+  return measured.getClientRects()[0] ?? measured.getBoundingClientRect();
+}
+
+function measureFocusTarget(
+  reader: Rendition,
+  targetCfi: string,
+  pageStartCfi: string | undefined,
+) {
+  if (!pageStartCfi) return {};
+  try {
+    const targetRange = reader.getRange(targetCfi);
+    const startRange = reader.getRange(pageStartCfi);
+    if (!targetRange || !startRange) return {};
+    const targetRect = measurableRangeRect(targetRange);
+    const startRect = measurableRangeRect(startRange);
+    const node =
+      targetRange.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (targetRange.startContainer as Element)
+        : targetRange.startContainer.parentElement;
+    const view = node?.ownerDocument.defaultView;
+    const style = node && view ? view.getComputedStyle(node) : undefined;
+    const fontSize = Number.parseFloat(style?.fontSize ?? '');
+    const computedLineHeight = Number.parseFloat(style?.lineHeight ?? '');
+    const lineHeightPx = Number.isFinite(computedLineHeight)
+      ? computedLineHeight
+      : Number.isFinite(fontSize)
+        ? fontSize * 1.2
+        : undefined;
+    const targetOffsetPx = Math.max(0, targetRect.top - startRect.top);
+    return { targetOffsetPx, lineHeightPx };
+  } catch {
+    return {};
+  }
+}
+
+function roundedMetric(value: number | undefined) {
+  return value === undefined ? undefined : Math.round(value * 100) / 100;
+}
 function styleEpub(
   reader: Rendition,
   preferences: Pick<
@@ -162,6 +224,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
   const focusPassageCfi = useRef<string | undefined>(undefined);
+  const focusResizeTransition = useRef<FocusResizeTransition>('layout');
+  const focusExpansionDeferredRef = useRef(false);
+  const focusExpansionPending = useRef(false);
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const navigationPending = useRef(false);
   const [position, setPosition] = useState(book.position);
@@ -204,19 +269,73 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   pageTurnsLockedRef.current = pageTurnsLocked;
   const [keepAwakeAvailable, setKeepAwakeAvailable] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [focusExpansionDeferred, setFocusExpansionDeferred] = useState(false);
   const controlsVisibleRef = useRef(true);
   const queuedControlsVisibility = useRef<boolean | null>(null);
   const applyReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible) return;
-    if (!visible && initial.current.format === 'epub') {
+    const isEpub = initial.current.format === 'epub';
+    const wasDeferred = focusExpansionDeferredRef.current;
+    if (!visible && isEpub) {
       const liveLocation = rendition.current?.currentLocation() as unknown as
         | Location
         | undefined;
       focusPassageCfi.current =
         liveLocation?.start?.cfi || current.current.location || undefined;
+      focusExpansionDeferredRef.current = false;
+      setFocusExpansionDeferred(false);
+      focusResizeTransition.current = 'entry';
+      focusExpansionPending.current = true;
+    } else if (visible && isEpub && !wasDeferred) {
+      focusResizeTransition.current = 'exit';
+      focusExpansionPending.current = true;
     }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
+    if (visible && isEpub && wasDeferred) {
+      const r = rendition.current;
+      const targetCfi = focusPassageCfi.current;
+      const location = r?.currentLocation() as unknown as Location | undefined;
+      const resultStartCfi = location?.start?.cfi;
+      const resultEndCfi = location?.end?.cfi;
+      const startComparison =
+        r && targetCfi && resultStartCfi
+          ? r.epubcfi.compare(resultStartCfi, targetCfi)
+          : undefined;
+      const endComparison =
+        r && targetCfi && resultEndCfi
+          ? r.epubcfi.compare(resultEndCfi, targetCfi)
+          : undefined;
+      const measured =
+        r && targetCfi ? measureFocusTarget(r, targetCfi, resultStartCfi) : {};
+      const metrics = evaluateFocusRestore({
+        startComparison,
+        endComparison,
+        ...measured,
+      });
+      console.info(
+        `[reader-focus-cfi] visual verification ${JSON.stringify({
+          transition: 'exit',
+          resizeSkipped: true,
+          targetCfi,
+          resultStartCfi,
+          resultEndCfi,
+          startComparison,
+          endComparison,
+          targetOffsetPx: roundedMetric(metrics.targetOffsetPx),
+          lineHeightPx: roundedMetric(metrics.lineHeightPx),
+          undershootLines: roundedMetric(metrics.undershootLines),
+          withinTolerance: metrics.withinTolerance,
+          deferredExpansionTriggered: false,
+          deferredExpansionActive: true,
+        })}`,
+      );
+      focusExpansionDeferredRef.current = false;
+      setFocusExpansionDeferred(false);
+      focusExpansionPending.current = false;
+      focusResizeTransition.current = 'layout';
+      focusPassageCfi.current = undefined;
+    }
     requestAnimationFrame(() =>
       (visible ? focusModeButton : showControlsButton).current?.focus({
         preventScroll: true,
@@ -225,7 +344,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, []);
   const setReaderControls = useCallback(
     (visible: boolean) => {
-      if (navigationPending.current) {
+      if (
+        navigationPending.current ||
+        layoutReflow.current.pending ||
+        focusExpansionPending.current
+      ) {
         queuedControlsVisibility.current = visible;
         return;
       }
@@ -237,6 +360,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const finishNavigation = useCallback(async () => {
     await writeQueue.current.catch(() => {});
     navigationPending.current = false;
+    if (layoutReflow.current.pending || focusExpansionPending.current) return;
     const queued = queuedControlsVisibility.current;
     if (queued === null) return;
     queuedControlsVisibility.current = null;
@@ -302,7 +426,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     book.finishedReadingTimeMs ?? book.readingTimeMs ?? 0,
   );
   interaction.current.blocked =
-    loading || turning || closing || !!panel || !!picture;
+    loading ||
+    turning ||
+    closing ||
+    focusExpansionPending.current ||
+    !!panel ||
+    !!picture;
   const requestedCfi = useRef<string | undefined>(undefined);
   const previousAppTheme = useRef(appTheme.theme);
   const storedReaderTheme = useRef(false);
@@ -553,7 +682,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             contentListeners.set(
               contents,
               bindReaderTaps(doc, {
-                enabled: () => !interaction.current.blocked,
+                enabled: () =>
+                  !interaction.current.blocked &&
+                  !focusExpansionPending.current,
                 bounds: () => {
                   // A paginated EPUB iframe can be wider than the visible page.
                   const frame =
@@ -835,7 +966,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     if (book.format === 'pdf' || !mount.current) return;
     const area = mount.current;
     return bindReaderTaps(area, {
-      enabled: () => !interaction.current.blocked,
+      enabled: () =>
+        !interaction.current.blocked && !focusExpansionPending.current,
       canTurn: () => !pageTurnsLockedRef.current,
       bounds: () => area.getBoundingClientRect(),
       turn: (direction) => void turnRef.current(direction),
@@ -846,7 +978,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     if (!mount.current) return;
     return bindNativeReaderTaps(mount.current, {
-      enabled: () => !interaction.current.blocked,
+      enabled: () =>
+        !interaction.current.blocked && !focusExpansionPending.current,
       canTurn: () =>
         !pageTurnsLockedRef.current && (book.format !== 'pdf' || zoom <= 1),
       turn: (direction) => void turnRef.current(direction),
@@ -879,8 +1012,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const resizeCfi = focusPassageCfi.current || liveLocation?.start?.cfi;
         if (!resizeCfi) {
           setSaveState('Page fitting failed — place kept');
+          focusExpansionPending.current = false;
+          setTurning(false);
           return;
         }
+        const focusTransition = focusResizeTransition.current;
         layoutReflow.current.begin(current.current);
         const snapshot = layoutReflow.current.snapshot();
         if (!snapshot) return;
@@ -888,14 +1024,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = true;
         setTurning(true);
         try {
-          await resizeEpubAt(
-            r,
-            area.clientWidth,
-            area.clientHeight,
-            resizeCfi,
-          );
+          await resizeEpubAt(r, area.clientWidth, area.clientHeight, resizeCfi);
           await r.display(resizeCfi);
-          let restoredLocation = r.currentLocation() as unknown as
+          const restoredLocation = r.currentLocation() as unknown as
             | Location
             | undefined;
           const restoredStartCfi = restoredLocation?.start?.cfi;
@@ -906,54 +1037,38 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const endComparison = restoredEndCfi
             ? r.epubcfi.compare(restoredEndCfi, resizeCfi)
             : undefined;
-          const correctionDirection =
-            startComparison !== undefined && startComparison > 0
-              ? 'previous'
-              : startComparison !== undefined &&
-                  endComparison !== undefined &&
-                  startComparison < 0 &&
-                  endComparison <= 0
-                ? 'next'
-                : undefined;
-          const correctionTriggered = correctionDirection !== undefined;
-          const focusTransition = controlsVisibleRef.current
-            ? 'exit'
-            : 'entry';
+          const metrics = evaluateFocusRestore({
+            startComparison,
+            endComparison,
+            ...measureFocusTarget(r, resizeCfi, restoredStartCfi),
+          });
+          const deferredExpansionTriggered =
+            focusTransition === 'entry' && !metrics.withinTolerance;
           console.info(
-            `[reader-focus-cfi] restore verification ${JSON.stringify({
+            `[reader-focus-cfi] visual verification ${JSON.stringify({
               transition: focusTransition,
               targetCfi: resizeCfi,
               resultStartCfi: restoredStartCfi,
               resultEndCfi: restoredEndCfi,
               startComparison,
               endComparison,
-              correctionTriggered,
-              correctionDirection,
+              targetOffsetPx: roundedMetric(metrics.targetOffsetPx),
+              lineHeightPx: roundedMetric(metrics.lineHeightPx),
+              undershootLines: roundedMetric(metrics.undershootLines),
+              toleranceLines: FOCUS_UNDERSHOOT_TOLERANCE_LINES,
+              withinTolerance: metrics.withinTolerance,
+              deferredExpansionTriggered,
+              deferredExpansionActive: focusExpansionDeferredRef.current,
             })}`,
           );
-          if (correctionTriggered) {
-            if (correctionDirection === 'next') await r.next();
-            else await r.prev();
-            restoredLocation = r.currentLocation() as unknown as
-              | Location
-              | undefined;
-            const correctedStartCfi = restoredLocation?.start?.cfi;
-            const correctedEndCfi = restoredLocation?.end?.cfi;
-            console.info(
-              `[reader-focus-cfi] correction verification ${JSON.stringify({
-                transition: focusTransition,
-                targetCfi: resizeCfi,
-                correctionDirection,
-                correctedStartCfi,
-                correctedEndCfi,
-                startComparison: correctedStartCfi
-                  ? r.epubcfi.compare(correctedStartCfi, resizeCfi)
-                  : undefined,
-                endComparison: correctedEndCfi
-                  ? r.epubcfi.compare(correctedEndCfi, resizeCfi)
-                  : undefined,
-              })}`,
-            );
+          if (deferredExpansionTriggered) {
+            if (layoutReflow.current.finish(revision)) {
+              focusExpansionDeferredRef.current = true;
+              focusResizeTransition.current = 'rollback';
+              setFocusExpansionDeferred(true);
+              setSaveState('Focus ready — full page after your next turn');
+            }
+            return;
           }
           const reported = await reportLatestLocation(r);
           if (
@@ -976,8 +1091,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
             );
             requestedCfi.current = undefined;
-            if (controlsVisibleRef.current)
-              focusPassageCfi.current = undefined;
+            if (controlsVisibleRef.current) focusPassageCfi.current = undefined;
+            if (
+              focusTransition === 'entry' ||
+              focusTransition === 'exit' ||
+              focusTransition === 'rollback' ||
+              focusTransition === 'deferred-after-turn'
+            ) {
+              focusResizeTransition.current = 'layout';
+              focusExpansionPending.current = false;
+            }
           }
         } catch {
           if (!cancelled && layoutReflow.current.finish(revision)) {
@@ -986,9 +1109,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               'The page could not be fitted to the screen. Your saved place is unchanged.',
             );
           }
+          focusResizeTransition.current = 'layout';
+          focusExpansionPending.current = false;
         } finally {
           await finishNavigation();
-          if (!cancelled && rendition.current === r) setTurning(false);
+          if (
+            !cancelled &&
+            rendition.current === r &&
+            !focusExpansionPending.current
+          )
+            setTurning(false);
         }
       };
       timer = setTimeout(() => void resizeAtCurrentPage(), delay);
@@ -1011,6 +1141,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       picture ||
       navigationPending.current ||
       layoutReflow.current.pending ||
+      focusExpansionPending.current ||
       pageTurnsLockedRef.current ||
       (direction < 0 && atStart) ||
       (direction > 0 && atEnd)
@@ -1021,6 +1152,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setError('');
     requestedCfi.current = undefined;
     if (book.format === 'epub') {
+      const expandFocusAfterTurn = focusExpansionDeferredRef.current;
       setTurning(true);
       navigationPending.current = true;
       try {
@@ -1033,11 +1165,18 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         if (reader) {
           await writeQueue.current;
         }
+        if (expandFocusAfterTurn) {
+          focusResizeTransition.current = 'deferred-after-turn';
+          focusExpansionPending.current = true;
+          focusExpansionDeferredRef.current = false;
+          setFocusExpansionDeferred(false);
+          setSaveState('Expanding focus page…');
+        }
       } catch {
         setError('Could not turn this page. Try the chapter list.');
       } finally {
         await finishNavigation();
-        setTurning(false);
+        if (!focusExpansionPending.current) setTurning(false);
       }
     } else setPage((p) => Math.max(1, Math.min(total, p + direction)));
   }
@@ -1214,7 +1353,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   return (
     <div
       ref={readerRoot}
-      className={`reader reader-${theme} ${controlsVisible ? '' : 'reader-focus'}`}
+      className={`reader reader-${theme} ${
+        controlsVisible
+          ? ''
+          : `reader-focus ${focusExpansionDeferred ? 'reader-focus-deferred' : ''}`
+      }`}
       aria-busy={loading}
     >
       <p id="reader-touch-help" className="sr-only">
