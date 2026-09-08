@@ -165,8 +165,13 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   );
   assert.match(
     readerSource,
-    /startComparison < 0 &&\s*endComparison <= 0;[\s\S]*?if \(correctionTriggered\) \{\s*await r\.next\(\);/,
+    /startComparison !== undefined && startComparison > 0[\s\S]*?\? 'previous'[\s\S]*?startComparison < 0 &&[\s\S]*?endComparison <= 0[\s\S]*?\? 'next'/,
   );
+  assert.match(
+    readerSource,
+    /if \(correctionDirection === 'next'\) await r\.next\(\);\s*else await r\.prev\(\);/,
+  );
+  assert.match(readerSource, /transition: focusTransition/);
   assert.match(readerSource, /\[reader-focus-cfi\] restore verification/);
   assert.match(readerSource, /\[reader-focus-cfi\] correction verification/);
   assert.doesNotMatch(readerSource, /const previous = anchor\.location/);

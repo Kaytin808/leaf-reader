@@ -906,23 +906,34 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const endComparison = restoredEndCfi
             ? r.epubcfi.compare(restoredEndCfi, resizeCfi)
             : undefined;
-          const correctionTriggered =
-            startComparison !== undefined &&
-            endComparison !== undefined &&
-            startComparison < 0 &&
-            endComparison <= 0;
+          const correctionDirection =
+            startComparison !== undefined && startComparison > 0
+              ? 'previous'
+              : startComparison !== undefined &&
+                  endComparison !== undefined &&
+                  startComparison < 0 &&
+                  endComparison <= 0
+                ? 'next'
+                : undefined;
+          const correctionTriggered = correctionDirection !== undefined;
+          const focusTransition = controlsVisibleRef.current
+            ? 'exit'
+            : 'entry';
           console.info(
             `[reader-focus-cfi] restore verification ${JSON.stringify({
+              transition: focusTransition,
               targetCfi: resizeCfi,
               resultStartCfi: restoredStartCfi,
               resultEndCfi: restoredEndCfi,
               startComparison,
               endComparison,
               correctionTriggered,
+              correctionDirection,
             })}`,
           );
           if (correctionTriggered) {
-            await r.next();
+            if (correctionDirection === 'next') await r.next();
+            else await r.prev();
             restoredLocation = r.currentLocation() as unknown as
               | Location
               | undefined;
@@ -930,7 +941,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             const correctedEndCfi = restoredLocation?.end?.cfi;
             console.info(
               `[reader-focus-cfi] correction verification ${JSON.stringify({
+                transition: focusTransition,
                 targetCfi: resizeCfi,
+                correctionDirection,
                 correctedStartCfi,
                 correctedEndCfi,
                 startComparison: correctedStartCfi
