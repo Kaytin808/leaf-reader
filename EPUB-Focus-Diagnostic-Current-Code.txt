@@ -1,0 +1,356 @@
+KAYLA'S LIBRARY — EPUB FOCUS MODE CURRENT-CODE DIAGNOSTIC
+=========================================================
+
+IMPORTANT
+---------
+
+This is a read-only diagnosis of the current implementation. No reader fix was
+applied while preparing this document.
+
+
+1. SINGLE EPUB RENDITION
+-------------------------
+
+STATUS: NOT BROKEN
+
+The rendition ref is declared once in components/reader.tsx:
+
+    const rendition = useRef<Rendition | null>(null);
+
+There is exactly one renderTo() call:
+
+    const r = localBook.renderTo(epubPageMount.current, {
+      width: '100%',
+      height: '100%',
+      spread: 'none',
+      flow: 'paginated',
+      allowScriptedContent: false,
+    });
+
+    rendition.current = r;
+
+There is exactly one permanent EPUB mount:
+
+    {book.format === 'epub' && (
+      <div ref={epubPageMount} className="epub-primary-page" />
+    )}
+
+There is no epubPreviewMount, previewRendition, epub-focus-page, or second
+EpubRendition in the current reader.
+
+Conclusion: Focus Mode is using the same rendition and the same EPUB mount.
+
+
+2. CURRENT POSITION REF AND EVERY UPDATE
+-----------------------------------------
+
+The position ref is declared in components/reader.tsx:
+
+    const current = useRef<Position>(book.position);
+
+There is exactly one assignment to current.current in the entire reader. It is
+inside save():
+
+    const save = useCallback((next: Position, reachedEnd = false) => {
+      const now = Date.now();
+
+      const normalized = {
+        ...next,
+        progress: reachedEnd ? 100 : Math.min(next.progress, 99),
+      };
+
+      const elapsed = readingClock.current.capture(now);
+
+      // This ref update is synchronous.
+      current.current = normalized;
+      setPosition(normalized);
+      setSaveState('Saving…');
+
+      // Persistent storage is updated afterward.
+      writeQueue.current = writeQueue.current
+        .catch(() => {})
+        .then(async () => {
+          const updated = await updateBook(initial.current.id, (latest) => ({
+            position: normalized,
+            lastRead: now,
+            readingTimeMs: Math.max(latest.readingTimeMs ?? 0, elapsed),
+          }));
+
+          callback.current(updated);
+        });
+    }, []);
+
+
+PAGE-TURN CALL CHAIN
+---------------------
+
+The current page-turn handler is:
+
+    async function turn(direction: -1 | 1) {
+      if (
+        loading ||
+        turning ||
+        closing ||
+        panel ||
+        picture ||
+        navigationPending.current ||
+        layoutReflow.current.pending ||
+        pageTurnsLockedRef.current ||
+        (direction < 0 && atStart) ||
+        (direction > 0 && atEnd)
+      )
+        return;
+
+      requestedCfi.current = undefined;
+
+      if (book.format === 'epub') {
+        setTurning(true);
+        navigationPending.current = true;
+
+        try {
+          const reader = rendition.current;
+
+          await (direction > 0 ? reader?.next() : reader?.prev());
+
+          if (reader) {
+            const location = await reportLatestLocation(reader);
+            persistEpubLocation(location);
+          }
+
+          if (reader) {
+            await writeQueue.current;
+          }
+        } catch {
+          setError('Could not turn this page. Try the chapter list.');
+        } finally {
+          navigationPending.current = false;
+          setTurning(false);
+        }
+      }
+    }
+
+persistEpubLocation() immediately calls save():
+
+    function persistEpubLocation(location: Location, target?: string) {
+      let sectionCount = 0;
+      epub.current?.spine.each(() => sectionCount++);
+
+      setAtStart(location.atStart);
+      setAtEnd(location.atEnd);
+
+      save(
+        positionForEpub(
+          location,
+          chapters,
+          sectionCount,
+          target,
+          settings.current.fontSize,
+        ),
+        location.atEnd,
+      );
+
+      if (!target || requestedCfi.current === target)
+        requestedCfi.current = undefined;
+    }
+
+The actual sequence is:
+
+    rendition.next() or rendition.prev()
+        -> await reportLatestLocation()
+        -> persistEpubLocation()
+        -> save()
+        -> current.current = normalized  [synchronous]
+        -> await persistent storage write
+        -> navigationPending.current = false
+
+Conclusion: current.current is synchronously updated inside the page-turn call
+chain. It is updated before the storage write completes and before
+navigationPending is cleared.
+
+It is not updated on the exact line immediately following next()/prev(), because
+the new visible CFI must first be obtained from reportLatestLocation(). If the wrong
+page is captured, reportLatestLocation() returning an older EPUB location is a more
+likely suspect than a delayed ref assignment.
+
+
+THE RELOCATED LISTENER IS NOT THE PAGE-TURN UPDATE
+--------------------------------------------------
+
+The relocated listener deliberately ignores events during page turns and reflows:
+
+    r.on('relocated', (loc: Location) => {
+      if (
+        cancelled ||
+        !epubReady.current ||
+        navigationPending.current ||
+        layoutReflow.current.pending
+      )
+        return;
+
+      setAtStart(loc.atStart);
+      setAtEnd(loc.atEnd);
+
+      let sectionCount = 0;
+      localBook?.spine.each(() => {
+        sectionCount++;
+      });
+
+      const requested = requestedCfi.current ?? current.current.location;
+      requestedCfi.current = undefined;
+
+      const next = positionForEpub(
+        loc,
+        indexedChapters,
+        sectionCount,
+        requested,
+        settings.current.fontSize,
+      );
+
+      const moved = next.location !== current.current.location;
+      if (!moved) next.progress = current.current.progress;
+      save(next, moved && loc.atEnd);
+    });
+
+The manual page-turn handler obtains and persists its location directly instead.
+
+
+POSSIBLE RESIZE-ANCHOR RACE
+----------------------------
+
+The ResizeObserver currently captures its reflow anchor before it checks whether
+navigation is pending:
+
+    const schedule = (delay = 160) => {
+      if (!epubReady.current) return;
+
+      layoutReflow.current.begin(current.current);
+      setSaveState('Fitting page…');
+      clearTimeout(timer);
+
+      const resizeAtCurrentPage = async () => {
+        const area = epubPageMount.current;
+        const r = rendition.current;
+
+        if (cancelled || !area || !r) return;
+        if (!epubReady.current) return;
+
+        if (navigationPending.current) {
+          timer = setTimeout(() => void resizeAtCurrentPage(), 80);
+          return;
+        }
+
+        // The previously captured anchor is used here.
+        const snapshot = layoutReflow.current.snapshot();
+        if (!snapshot) return;
+
+        const { anchor, revision } = snapshot;
+        const previous = anchor.location;
+        // ...
+      };
+    };
+
+This means a ResizeObserver event caused by something other than a successfully
+completed Focus toggle could capture current.current while navigation is still in
+progress, then wait and later use that older anchor.
+
+This is a possible race that deserves a targeted test. It does not prove the Focus
+bug by itself because the current Focus toggle is rejected while navigationPending
+is true.
+
+
+3. SILENT FOCUS TOGGLE FAILURE
+-------------------------------
+
+STATUS: BROKEN
+
+The current code is:
+
+    const setReaderControls = useCallback((visible: boolean) => {
+      if (controlsVisibleRef.current === visible || navigationPending.current)
+        return;
+
+      controlsVisibleRef.current = visible;
+      setControlsVisible(visible);
+
+      requestAnimationFrame(() =>
+        (visible ? focusModeButton : showControlsButton).current?.focus({
+          preventScroll: true,
+        }),
+      );
+    }, []);
+
+If navigationPending.current is true, the requested Focus Mode change is silently
+discarded.
+
+It is not:
+
+    - logged
+    - queued
+    - retried
+    - shown to the user
+
+navigationPending remains true while all of these operations happen:
+
+    1. rendition.next() or rendition.prev()
+    2. reportLatestLocation()
+    3. the synchronous current.current update
+    4. the complete persistent-storage write
+
+Because the handler awaits writeQueue.current, slow storage unnecessarily extends
+the time during which Focus taps are silently dropped.
+
+This can explain why a Focus tap appears not to work. It does not directly explain
+a successful Focus transition reverting to another page, because a rejected toggle
+does not change Focus Mode at all.
+
+There is currently no console log in this branch. No temporary log was added during
+this diagnostic because the instruction was to inspect and report before changing
+anything.
+
+
+PLAIN VERDICT
+-------------
+
+1. Single rendition and permanent EPUB mount:
+   NOT BROKEN.
+
+2. current.current synchronization after a page turn:
+   NOT BROKEN IN THE SPECIFIC WAY SUSPECTED. It is updated synchronously through
+   persistEpubLocation() -> save() after reportLatestLocation() returns and before
+   the storage write finishes.
+
+3. ResizeObserver anchor timing:
+   POSSIBLE RACE. It captures current.current before checking navigationPending.
+   This requires a targeted test before calling it the confirmed page-reversion
+   cause.
+
+4. Silent Focus toggle failure:
+   DEFINITELY BROKEN. A Focus request made during navigation is discarded with no
+   feedback, queue, or retry.
+
+
+RECOMMENDED NEXT INVESTIGATION — DO NOT IMPLEMENT UNTIL APPROVED
+----------------------------------------------------------------
+
+1. Temporarily log every blocked Focus toggle, including navigationPending,
+   layoutReflow.pending, and current.current.location.
+
+2. Log these CFIs for one page turn followed by one Focus toggle:
+
+       - CFI before next()/prev()
+       - rendition.currentLocation() after next()/prev()
+       - result from reportLatestLocation()
+       - value assigned to current.current
+       - anchor captured by layoutReflow.begin()
+       - CFI passed to rendition.resize()
+       - CFI passed to rendition.display()
+       - final CFI after reflow
+
+3. Queue a requested Focus visibility change while navigation is pending, then
+   apply it as soon as navigation and location persistence have settled.
+
+4. Consider moving layoutReflow.begin(current.current) until after
+   navigationPending is false, or refresh the captured anchor after navigation
+   finishes, so a pending resize can never retain a pre-turn position.
+
+5. Do not create another EPUB rendition or another EPUB mount as part of the fix.
