@@ -161,6 +161,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
+  const focusPassageCfi = useRef<string | undefined>(undefined);
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   const navigationPending = useRef(false);
   const [position, setPosition] = useState(book.position);
@@ -207,6 +208,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const queuedControlsVisibility = useRef<boolean | null>(null);
   const applyReaderControls = useCallback((visible: boolean) => {
     if (controlsVisibleRef.current === visible) return;
+    if (!visible && initial.current.format === 'epub') {
+      const liveLocation = rendition.current?.currentLocation() as unknown as
+        | Location
+        | undefined;
+      focusPassageCfi.current =
+        liveLocation?.start?.cfi || current.current.location || undefined;
+    }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
     requestAnimationFrame(() =>
@@ -868,7 +876,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const liveLocation = r.currentLocation() as unknown as
           | Location
           | undefined;
-        const resizeCfi = liveLocation?.start?.cfi;
+        const resizeCfi = focusPassageCfi.current || liveLocation?.start?.cfi;
         if (!resizeCfi) {
           setSaveState('Page fitting failed — place kept');
           return;
@@ -887,6 +895,53 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             resizeCfi,
           );
           await r.display(resizeCfi);
+          let restoredLocation = r.currentLocation() as unknown as
+            | Location
+            | undefined;
+          const restoredStartCfi = restoredLocation?.start?.cfi;
+          const restoredEndCfi = restoredLocation?.end?.cfi;
+          const startComparison = restoredStartCfi
+            ? r.epubcfi.compare(restoredStartCfi, resizeCfi)
+            : undefined;
+          const endComparison = restoredEndCfi
+            ? r.epubcfi.compare(restoredEndCfi, resizeCfi)
+            : undefined;
+          const correctionTriggered =
+            startComparison !== undefined &&
+            endComparison !== undefined &&
+            startComparison < 0 &&
+            endComparison <= 0;
+          console.info(
+            `[reader-focus-cfi] restore verification ${JSON.stringify({
+              targetCfi: resizeCfi,
+              resultStartCfi: restoredStartCfi,
+              resultEndCfi: restoredEndCfi,
+              startComparison,
+              endComparison,
+              correctionTriggered,
+            })}`,
+          );
+          if (correctionTriggered) {
+            await r.next();
+            restoredLocation = r.currentLocation() as unknown as
+              | Location
+              | undefined;
+            const correctedStartCfi = restoredLocation?.start?.cfi;
+            const correctedEndCfi = restoredLocation?.end?.cfi;
+            console.info(
+              `[reader-focus-cfi] correction verification ${JSON.stringify({
+                targetCfi: resizeCfi,
+                correctedStartCfi,
+                correctedEndCfi,
+                startComparison: correctedStartCfi
+                  ? r.epubcfi.compare(correctedStartCfi, resizeCfi)
+                  : undefined,
+                endComparison: correctedEndCfi
+                  ? r.epubcfi.compare(correctedEndCfi, resizeCfi)
+                  : undefined,
+              })}`,
+            );
+          }
           const reported = await reportLatestLocation(r);
           if (
             !cancelled &&
@@ -908,6 +963,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
             );
             requestedCfi.current = undefined;
+            if (controlsVisibleRef.current)
+              focusPassageCfi.current = undefined;
           }
         } catch {
           if (!cancelled && layoutReflow.current.finish(revision)) {
@@ -1085,6 +1142,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     epub.current?.spine.each(() => sectionCount++);
     setAtStart(location.atStart);
     setAtEnd(location.atEnd);
+    if (!controlsVisibleRef.current)
+      focusPassageCfi.current = location.start.cfi;
     save(
       positionForEpub(
         location,

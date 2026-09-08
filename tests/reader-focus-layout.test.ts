@@ -137,12 +137,38 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   assert.ok(anchorCapture > pendingCheck);
   assert.match(
     readerSource,
-    /const liveLocation = r\.currentLocation\(\)[\s\S]*?const resizeCfi = liveLocation\?\.start\?\.cfi;/,
+    /const liveLocation = r\.currentLocation\(\)[\s\S]*?const resizeCfi = focusPassageCfi\.current \|\| liveLocation\?\.start\?\.cfi;/,
+  );
+  assert.match(
+    readerSource,
+    /if \(!visible && initial\.current\.format === 'epub'\)[\s\S]*?focusPassageCfi\.current =[\s\S]*?liveLocation\?\.start\?\.cfi/,
+  );
+  assert.match(
+    readerSource,
+    /if \(!controlsVisibleRef\.current\)\s*focusPassageCfi\.current = location\.start\.cfi;/,
+  );
+  assert.match(
+    readerSource,
+    /if \(controlsVisibleRef\.current\)\s*focusPassageCfi\.current = undefined;/,
   );
   assert.match(
     readerSource,
     /await resizeEpubAt\([\s\S]*?area\.clientHeight,\s*resizeCfi,\s*\);\s*await r\.display\(resizeCfi\);/,
   );
+  assert.match(
+    readerSource,
+    /await r\.display\(resizeCfi\);\s*let restoredLocation = r\.currentLocation\(\)/,
+  );
+  assert.match(
+    readerSource,
+    /r\.epubcfi\.compare\(restoredStartCfi, resizeCfi\)/,
+  );
+  assert.match(
+    readerSource,
+    /startComparison < 0 &&\s*endComparison <= 0;[\s\S]*?if \(correctionTriggered\) \{\s*await r\.next\(\);/,
+  );
+  assert.match(readerSource, /\[reader-focus-cfi\] restore verification/);
+  assert.match(readerSource, /\[reader-focus-cfi\] correction verification/);
   assert.doesNotMatch(readerSource, /const previous = anchor\.location/);
   assert.match(readerSource, /await resizeEpubAt\(/);
 });
