@@ -68,15 +68,6 @@ import {
   FOCUS_UNDERSHOOT_TOLERANCE_LINES,
 } from '@/lib/epub-focus';
 import {
-  findFocusPage,
-  focusLayoutKey,
-  FOCUS_CACHE_IDLE_DELAY_MS,
-  FOCUS_CACHE_PAGE_RADIUS,
-  uniqueFocusPages,
-  type FocusPageBoundary,
-  type FocusPageCache,
-} from '@/lib/epub-focus-cache';
-import {
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
@@ -168,48 +159,6 @@ function measureFocusTarget(
 function roundedMetric(value: number | undefined) {
   return value === undefined ? undefined : Math.round(value * 100) / 100;
 }
-
-function focusViewport(root: HTMLElement | null, page: HTMLElement | null) {
-  if (!root || !page) return undefined;
-  const style = getComputedStyle(root);
-  const paddingTop = Number.parseFloat(style.paddingTop) || 0;
-  const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
-  const width = Math.round(page.clientWidth);
-  const height = Math.round(
-    root.clientHeight - paddingTop - paddingBottom - 14 - 14,
-  );
-  return width > 0 && height > 0 ? { width, height } : undefined;
-}
-
-function boundaryFor(location: Location): FocusPageBoundary {
-  return {
-    startCfi: location.start.cfi,
-    endCfi: location.end.cfi,
-    sectionIndex: location.start.index,
-  };
-}
-
-function locationContainsCfi(
-  reader: Rendition,
-  location: Location | undefined,
-  cfi: string,
-) {
-  if (
-    !cfi.startsWith('epubcfi(') ||
-    !location?.start?.cfi ||
-    !location.end?.cfi
-  )
-    return false;
-  try {
-    return (
-      reader.epubcfi.compare(location.start.cfi, cfi) <= 0 &&
-      reader.epubcfi.compare(cfi, location.end.cfi) <= 0
-    );
-  } catch {
-    return false;
-  }
-}
-
 function styleEpub(
   reader: Rendition,
   preferences: Pick<
@@ -262,7 +211,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [onUpdate]);
   const mount = useRef<HTMLElement>(null);
   const epubPageMount = useRef<HTMLDivElement>(null);
-  const focusCacheMount = useRef<HTMLDivElement>(null);
   const readerRoot = useRef<HTMLDivElement>(null);
   const readerHeader = useRef<HTMLElement>(null);
   const readerFooter = useRef<HTMLDivElement>(null);
@@ -271,25 +219,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const epub = useRef<Book | null>(null);
   const reflowableEpub = useRef(true);
   const rendition = useRef<Rendition | null>(null);
-  const focusCacheRendition = useRef<Rendition | null>(null);
-  const focusPageCache = useRef<FocusPageCache | undefined>(undefined);
-  const focusCacheInvalidReason = useRef('not-ready');
-  const scheduleFocusPagination = useRef<
-    (
-      cfi: string,
-      reason: string,
-      delayMs?: number,
-      allowWhileFocused?: boolean,
-    ) => void
-  >(() => {});
-  const invalidateFocusPagination = useRef<(reason: string) => void>(() => {});
   const epubReady = useRef(false);
   const pdf = useRef<PDFDocumentProxy | null>(null);
   const current = useRef<Position>(book.position);
   const layoutReflow = useRef(new EpubReflow());
   const focusPassageCfi = useRef<string | undefined>(undefined);
-  const focusDisplayCfi = useRef<string | undefined>(undefined);
-  const focusCacheEntry = useRef({ hit: false, reason: 'not-ready' });
   const focusResizeTransition = useRef<FocusResizeTransition>('layout');
   const focusExpansionDeferredRef = useRef(false);
   const focusExpansionPending = useRef(false);
@@ -343,59 +277,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const isEpub = initial.current.format === 'epub';
     const wasDeferred = focusExpansionDeferredRef.current;
     if (!visible && isEpub) {
-      const activeRendition = rendition.current;
-      const liveLocation = activeRendition?.currentLocation() as unknown as
+      const liveLocation = rendition.current?.currentLocation() as unknown as
         | Location
         | undefined;
-      const savedCfi = current.current.location;
-      const savedCfiIsVisible =
-        !!activeRendition &&
-        locationContainsCfi(activeRendition, liveLocation, savedCfi);
-      // Normal and Focus layouts have different page boundaries. After an
-      // exact exit restore, the normal page can start before the saved CFI
-      // while still containing it. Preserve that precise passage on re-entry
-      // instead of replacing it with the normal page's earlier start CFI.
-      focusPassageCfi.current = savedCfiIsVisible
-        ? savedCfi
-        : liveLocation?.start?.cfi || savedCfi || undefined;
-      const viewport = focusViewport(readerRoot.current, epubPageMount.current);
-      const layoutKey = viewport
-        ? focusLayoutKey({
-            ...viewport,
-            ...settings.current,
-            reflowable: reflowableEpub.current,
-          })
-        : undefined;
-      const cached =
-        rendition.current && focusPassageCfi.current && layoutKey
-          ? findFocusPage(
-              focusPageCache.current,
-              focusPassageCfi.current,
-              layoutKey,
-              rendition.current.epubcfi.compare.bind(rendition.current.epubcfi),
-            )
-          : { page: undefined, reason: 'viewport-unavailable' as const };
-      const cacheReason =
-        !cached.page && cached.reason === 'not-ready'
-          ? focusCacheInvalidReason.current
-          : cached.reason;
-      focusDisplayCfi.current = cached.page?.startCfi;
-      focusCacheEntry.current = {
-        hit: !!cached.page,
-        reason: cacheReason,
-      };
-      console.info(
-        `[reader-focus-cache] entry decision ${JSON.stringify({
-          cacheHit: !!cached.page,
-          reason: cacheReason,
-          readingCfi: focusPassageCfi.current,
-          cachedStartCfi: cached.page?.startCfi,
-          cachedEndCfi: cached.page?.endCfi,
-          cacheAgeMs: focusPageCache.current
-            ? Date.now() - focusPageCache.current.generatedAt
-            : undefined,
-        })}`,
-      );
+      focusPassageCfi.current =
+        liveLocation?.start?.cfi || current.current.location || undefined;
       focusExpansionDeferredRef.current = false;
       setFocusExpansionDeferred(false);
       focusResizeTransition.current = 'entry';
@@ -406,16 +292,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     }
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
-    if (visible && isEpub) {
-      const resumeCfi =
-        focusPassageCfi.current ||
-        (
-          rendition.current?.currentLocation() as unknown as
-            | Location
-            | undefined
-        )?.start?.cfi;
-      if (resumeCfi) scheduleFocusPagination.current(resumeCfi, 'focus-exit');
-    }
     if (visible && isEpub && wasDeferred) {
       const r = rendition.current;
       const targetCfi = focusPassageCfi.current;
@@ -459,8 +335,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       focusExpansionPending.current = false;
       focusResizeTransition.current = 'layout';
       focusPassageCfi.current = undefined;
-      focusDisplayCfi.current = undefined;
-      focusCacheEntry.current = { hit: false, reason: 'not-entering' };
     }
     requestAnimationFrame(() =>
       (visible ? focusModeButton : showControlsButton).current?.focus({
@@ -717,9 +591,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let cancelled = false;
     let loadingTask: PDFDocumentLoadingTask | undefined;
     let localBook: Book | undefined;
-    let backgroundRendition: Rendition | undefined;
-    let focusCacheTimer: ReturnType<typeof setTimeout> | undefined;
-    let focusCacheRevision = 0;
     const contentListeners = new Map<Contents, () => void>();
     const timer = setTimeout(() => {
       if (!cancelled)
@@ -781,11 +652,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           );
           setLoading(false);
         } else {
-          const [{ Book: EpubBook, Rendition: EpubRendition }, bytes] =
-            await Promise.all([
-              import('epubjs'),
-              prepareEpub(await file.arrayBuffer()),
-            ]);
+          const [{ Book: EpubBook }, bytes] = await Promise.all([
+            import('epubjs'),
+            prepareEpub(await file.arrayBuffer()),
+          ]);
           if (cancelled || !epubPageMount.current) return;
           localBook = new EpubBook({ replacements: 'blobUrl' });
           epub.current = localBook;
@@ -807,177 +677,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             allowScriptedContent: false,
           });
           rendition.current = r;
-          const invalidateFocusCache = (reason: string) => {
-            focusCacheRevision++;
-            if (focusCacheTimer) clearTimeout(focusCacheTimer);
-            focusPageCache.current = undefined;
-            focusCacheInvalidReason.current = reason;
-            console.info(
-              `[reader-focus-cache] invalidated ${JSON.stringify({
-                reason,
-                controlsVisible: controlsVisibleRef.current,
-                fontSize: settings.current.fontSize,
-              })}`,
-            );
-          };
-          const buildFocusCache = async (
-            sourceCfi: string,
-            reason: string,
-            revision: number,
-            allowWhileFocused: boolean,
-          ) => {
-            const startedAt = performance.now();
-            const cacheMount = focusCacheMount.current;
-            const viewport = focusViewport(
-              readerRoot.current,
-              epubPageMount.current,
-            );
-            if (
-              cancelled ||
-              (!controlsVisibleRef.current && !allowWhileFocused) ||
-              !cacheMount ||
-              !viewport ||
-              !localBook
-            )
-              return;
-            try {
-              cacheMount.style.width = `${viewport.width}px`;
-              cacheMount.style.height = `${viewport.height}px`;
-              if (!backgroundRendition) {
-                backgroundRendition = new EpubRendition(localBook, {
-                  width: viewport.width,
-                  height: viewport.height,
-                  spread: 'none',
-                  flow: 'paginated',
-                  allowScriptedContent: false,
-                  resizeOnOrientationChange: false,
-                });
-                backgroundRendition.hooks.content.register(
-                  (contents: Contents) => {
-                    // The cache renderer is measured explicitly after each
-                    // style/size change, so its live ResizeObserver adds work
-                    // and can cause observer-loop warnings without improving
-                    // the cached boundaries.
-                    (
-                      contents as Contents & { observer?: ResizeObserver }
-                    ).observer?.disconnect();
-                  },
-                );
-                focusCacheRendition.current = backgroundRendition;
-                await backgroundRendition.attachTo(cacheMount);
-              }
-              if (cancelled || revision !== focusCacheRevision) return;
-              const cacheReader = backgroundRendition;
-              styleEpub(cacheReader, settings.current, reflowableEpub.current);
-              await resizeEpubAt(
-                cacheReader,
-                viewport.width,
-                viewport.height,
-                sourceCfi,
-              );
-              await cacheReader.display(sourceCfi);
-              const center = await reportLatestLocation(cacheReader);
-              if (cancelled || revision !== focusCacheRevision) return;
-              const sectionIndex = center.start.index;
-              const pages: FocusPageBoundary[] = [boundaryFor(center)];
-
-              let cursor = center;
-              for (let index = 0; index < FOCUS_CACHE_PAGE_RADIUS; index++) {
-                await cacheReader.next();
-                const location = await reportLatestLocation(cacheReader);
-                if (
-                  location.start.index !== sectionIndex ||
-                  location.start.cfi === cursor.start.cfi
-                )
-                  break;
-                pages.push(boundaryFor(location));
-                cursor = location;
-              }
-
-              await cacheReader.display(center.start.cfi);
-              await reportLatestLocation(cacheReader);
-              cursor = center;
-              for (let index = 0; index < FOCUS_CACHE_PAGE_RADIUS; index++) {
-                await cacheReader.prev();
-                const location = await reportLatestLocation(cacheReader);
-                if (
-                  location.start.index !== sectionIndex ||
-                  location.start.cfi === cursor.start.cfi
-                )
-                  break;
-                pages.push(boundaryFor(location));
-                cursor = location;
-              }
-
-              if (
-                cancelled ||
-                revision !== focusCacheRevision ||
-                (!controlsVisibleRef.current && !allowWhileFocused)
-              )
-                return;
-              const layoutKey = focusLayoutKey({
-                ...viewport,
-                ...settings.current,
-                reflowable: reflowableEpub.current,
-              });
-              const bufferedPages = uniqueFocusPages(
-                pages,
-                cacheReader.epubcfi.compare.bind(cacheReader.epubcfi),
-              );
-              focusPageCache.current = {
-                layoutKey,
-                pages: bufferedPages,
-                generatedAt: Date.now(),
-                sourceCfi,
-              };
-              focusCacheInvalidReason.current = 'ready';
-              console.info(
-                `[reader-focus-cache] precomputed ${JSON.stringify({
-                  reason,
-                  sourceCfi,
-                  sectionIndex,
-                  pages: bufferedPages.length,
-                  durationMs: roundedMetric(performance.now() - startedAt),
-                  boundaryBytes: JSON.stringify(bufferedPages).length,
-                  debounceMs: FOCUS_CACHE_IDLE_DELAY_MS,
-                  controlsVisible: controlsVisibleRef.current,
-                  fontSize: settings.current.fontSize,
-                })}`,
-              );
-            } catch (cacheError) {
-              if (cancelled || revision !== focusCacheRevision) return;
-              focusPageCache.current = undefined;
-              focusCacheInvalidReason.current = 'pagination-error';
-              console.warn(
-                `[reader-focus-cache] precompute failed ${JSON.stringify({
-                  reason,
-                  sourceCfi,
-                  message: errorMessage(cacheError),
-                })}`,
-              );
-            }
-          };
-          scheduleFocusPagination.current = (
-            sourceCfi,
-            reason,
-            delayMs = FOCUS_CACHE_IDLE_DELAY_MS,
-            allowWhileFocused = false,
-          ) => {
-            const revision = ++focusCacheRevision;
-            if (focusCacheTimer) clearTimeout(focusCacheTimer);
-            focusCacheInvalidReason.current = `waiting:${reason}`;
-            focusCacheTimer = setTimeout(
-              () =>
-                void buildFocusCache(
-                  sourceCfi,
-                  reason,
-                  revision,
-                  allowWhileFocused,
-                ),
-              delayMs,
-            );
-          };
-          invalidateFocusPagination.current = invalidateFocusCache;
           r.hooks.content.register((contents: Contents) => {
             const doc = contents.document;
             contentListeners.set(
@@ -1083,10 +782,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             setAtStart(restored.atStart);
             setAtEnd(restored.atEnd);
             setLoading(false);
-            scheduleFocusPagination.current(
-              restored.start.cfi,
-              'initial-location',
-            );
           } finally {
             await finishNavigation();
           }
@@ -1106,20 +801,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       clearTimeout(timer);
       for (const dispose of contentListeners.values()) dispose();
       contentListeners.clear();
-      focusCacheRevision++;
-      if (focusCacheTimer) clearTimeout(focusCacheTimer);
-      scheduleFocusPagination.current = () => {};
-      invalidateFocusPagination.current = () => {};
-      focusPageCache.current = undefined;
-      focusCacheInvalidReason.current = 'reader-closed';
-      focusCacheRendition.current = null;
-      if (backgroundRendition) {
-        try {
-          backgroundRendition.destroy();
-        } catch {
-          /* Partially prepared background rendition. */
-        }
-      }
       rendition.current = null;
       epubReady.current = false;
       epub.current = null;
@@ -1195,7 +876,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     const r = rendition.current;
     if (!r) return;
-    invalidateFocusPagination.current('reading-settings-changed');
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const reflow = async () => {
@@ -1238,12 +918,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             ),
           );
           requestedCfi.current = undefined;
-          scheduleFocusPagination.current(
-            reported.start.cfi,
-            'settings-settled',
-            FOCUS_CACHE_IDLE_DELAY_MS,
-            !controlsVisibleRef.current,
-          );
         }
       } catch {
         if (!cancelled)
@@ -1319,9 +993,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const observedPage = epubPageMount.current;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    let lastCompletedViewportKey: string | undefined;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
+      setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
         const area = epubPageMount.current;
@@ -1332,59 +1006,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
         }
-        const viewportKey = `${area.clientWidth}x${area.clientHeight}`;
-        if (
-          focusResizeTransition.current === 'layout' &&
-          viewportKey === lastCompletedViewportKey
-        ) {
-          console.info(
-            `[reader-focus-cfi] duplicate viewport skipped ${JSON.stringify({
-              viewportKey,
-              controlsVisible: controlsVisibleRef.current,
-            })}`,
-          );
-          return;
-        }
-        setSaveState('Fitting page…');
         const liveLocation = r.currentLocation() as unknown as
           | Location
           | undefined;
-        const savedCfi = current.current.location;
-        const readingCfi =
-          focusPassageCfi.current ||
-          (locationContainsCfi(r, liveLocation, savedCfi)
-            ? savedCfi
-            : liveLocation?.start?.cfi);
-        if (!readingCfi) {
+        const resizeCfi = focusPassageCfi.current || liveLocation?.start?.cfi;
+        if (!resizeCfi) {
           setSaveState('Page fitting failed — place kept');
           focusExpansionPending.current = false;
           setTurning(false);
           return;
         }
         const focusTransition = focusResizeTransition.current;
-        const actualLayoutKey = focusLayoutKey({
-          width: area.clientWidth,
-          height: area.clientHeight,
-          ...settings.current,
-          reflowable: reflowableEpub.current,
-        });
-        const cacheLayoutMatches =
-          focusPageCache.current?.layoutKey === actualLayoutKey;
-        const cacheRequested =
-          focusTransition === 'entry' &&
-          focusCacheEntry.current.hit &&
-          !!focusDisplayCfi.current;
-        const resizeCfi =
-          cacheRequested && cacheLayoutMatches
-            ? focusDisplayCfi.current!
-            : readingCfi;
-        if (cacheRequested && !cacheLayoutMatches) {
-          focusCacheEntry.current = {
-            hit: false,
-            reason: 'viewport-changed-before-entry',
-          };
-          focusDisplayCfi.current = undefined;
-        }
         layoutReflow.current.begin(current.current);
         const snapshot = layoutReflow.current.snapshot();
         if (!snapshot) return;
@@ -1400,56 +1032,37 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const restoredStartCfi = restoredLocation?.start?.cfi;
           const restoredEndCfi = restoredLocation?.end?.cfi;
           const startComparison = restoredStartCfi
-            ? r.epubcfi.compare(restoredStartCfi, readingCfi)
+            ? r.epubcfi.compare(restoredStartCfi, resizeCfi)
             : undefined;
           const endComparison = restoredEndCfi
-            ? r.epubcfi.compare(restoredEndCfi, readingCfi)
-            : undefined;
-          const displayStartComparison = restoredStartCfi
-            ? r.epubcfi.compare(restoredStartCfi, resizeCfi)
+            ? r.epubcfi.compare(restoredEndCfi, resizeCfi)
             : undefined;
           const metrics = evaluateFocusRestore({
             startComparison,
             endComparison,
-            ...measureFocusTarget(r, readingCfi, restoredStartCfi),
+            ...measureFocusTarget(r, resizeCfi, restoredStartCfi),
           });
-          const cacheServed =
-            cacheRequested &&
-            cacheLayoutMatches &&
-            displayStartComparison === 0;
-          const cacheVisuallyAccepted = cacheServed && metrics.withinTolerance;
           const deferredExpansionTriggered =
             focusTransition === 'entry' && !metrics.withinTolerance;
           console.info(
             `[reader-focus-cfi] visual verification ${JSON.stringify({
               transition: focusTransition,
-              readingCfi,
-              displayCfi: resizeCfi,
+              targetCfi: resizeCfi,
               resultStartCfi: restoredStartCfi,
               resultEndCfi: restoredEndCfi,
               startComparison,
               endComparison,
-              displayStartComparison,
               targetOffsetPx: roundedMetric(metrics.targetOffsetPx),
               lineHeightPx: roundedMetric(metrics.lineHeightPx),
               undershootLines: roundedMetric(metrics.undershootLines),
               toleranceLines: FOCUS_UNDERSHOOT_TOLERANCE_LINES,
               withinTolerance: metrics.withinTolerance,
-              cacheRequested,
-              cacheHit: cacheServed,
-              cacheVisuallyAccepted,
-              cacheReason: focusCacheEntry.current.reason,
               deferredExpansionTriggered,
               deferredExpansionActive: focusExpansionDeferredRef.current,
             })}`,
           );
           if (deferredExpansionTriggered) {
             if (layoutReflow.current.finish(revision)) {
-              focusDisplayCfi.current = undefined;
-              focusCacheEntry.current = {
-                hit: false,
-                reason: 'fallback-deferred',
-              };
               focusExpansionDeferredRef.current = true;
               focusResizeTransition.current = 'rollback';
               setFocusExpansionDeferred(true);
@@ -1478,13 +1091,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               ),
             );
             requestedCfi.current = undefined;
-            lastCompletedViewportKey = viewportKey;
             if (controlsVisibleRef.current) focusPassageCfi.current = undefined;
-            focusDisplayCfi.current = undefined;
-            focusCacheEntry.current = {
-              hit: false,
-              reason: 'transition-complete',
-            };
             if (
               focusTransition === 'entry' ||
               focusTransition === 'exit' ||
@@ -1504,8 +1111,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           }
           focusResizeTransition.current = 'layout';
           focusExpansionPending.current = false;
-          focusDisplayCfi.current = undefined;
-          focusCacheEntry.current = { hit: false, reason: 'resize-error' };
         } finally {
           await finishNavigation();
           if (
@@ -1528,21 +1133,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }, [book.format, finishNavigation, save]);
 
   async function turn(direction: -1 | 1) {
-    const attemptedLocation =
-      rendition.current?.currentLocation() as unknown as Location | undefined;
-    console.info(
-      `[reader-turn-trace] handler ${JSON.stringify({
-        direction: direction > 0 ? 'next' : 'previous',
-        controlsVisible: controlsVisibleRef.current,
-        focusMode: !controlsVisibleRef.current,
-        beforeCfi: attemptedLocation?.start?.cfi,
-        navigationPending: navigationPending.current,
-        layoutPending: layoutReflow.current.pending,
-        focusExpansionPending: focusExpansionPending.current,
-        deferredExpansionAwaitingTurn: focusExpansionDeferredRef.current,
-        turning,
-      })}`,
-    );
     if (
       loading ||
       turning ||
@@ -1562,75 +1152,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setError('');
     requestedCfi.current = undefined;
     if (book.format === 'epub') {
-      const expandFocusAfterTurn =
-        !controlsVisibleRef.current && focusExpansionDeferredRef.current;
+      const expandFocusAfterTurn = focusExpansionDeferredRef.current;
       setTurning(true);
       navigationPending.current = true;
       try {
         const reader = rendition.current;
-        const beforeNavigation = reader?.currentLocation() as unknown as
-          | Location
-          | undefined;
-        console.info(
-          `[reader-turn-trace] live rendition before ${JSON.stringify({
-            direction: direction > 0 ? 'next' : 'previous',
-            controlsVisible: controlsVisibleRef.current,
-            beforeStartCfi: beforeNavigation?.start?.cfi,
-            beforeEndCfi: beforeNavigation?.end?.cfi,
-            cacheLookupUsed: false,
-          })}`,
-        );
         await (direction > 0 ? reader?.next() : reader?.prev());
         if (reader) {
           const location = await reportLatestLocation(reader);
-          console.info(
-            `[reader-turn-trace] live rendition completed ${JSON.stringify({
-              direction: direction > 0 ? 'next' : 'previous',
-              controlsVisible: controlsVisibleRef.current,
-              beforeStartCfi: beforeNavigation?.start?.cfi,
-              afterStartCfi: location.start.cfi,
-              afterEndCfi: location.end.cfi,
-              advanced:
-                !beforeNavigation?.start?.cfi ||
-                reader.epubcfi.compare(
-                  location.start.cfi,
-                  beforeNavigation.start.cfi,
-                ) !== 0,
-              cacheLookupUsed: false,
-              cachedPageStarts:
-                focusPageCache.current?.pages.map((page) => page.startCfi) ??
-                [],
-            })}`,
-          );
           persistEpubLocation(location);
         }
         if (reader) {
           await writeQueue.current;
-          if (controlsVisibleRef.current)
-            scheduleFocusPagination.current(
-              (reader.currentLocation() as unknown as Location).start.cfi,
-              'normal-page-turn',
-            );
         }
-        const shouldExpandFocusAfterTurn =
-          expandFocusAfterTurn &&
-          !controlsVisibleRef.current &&
-          focusExpansionDeferredRef.current;
-        console.info(
-          `[reader-turn-trace] deferred expansion decision ${JSON.stringify({
-            direction: direction > 0 ? 'next' : 'previous',
-            controlsVisible: controlsVisibleRef.current,
-            capturedAwaitingTurn: expandFocusAfterTurn,
-            currentAwaitingTurn: focusExpansionDeferredRef.current,
-            focusExpansionPending: focusExpansionPending.current,
-            scheduled: shouldExpandFocusAfterTurn,
-          })}`,
-        );
-        if (shouldExpandFocusAfterTurn) {
+        if (expandFocusAfterTurn) {
           focusResizeTransition.current = 'deferred-after-turn';
           focusExpansionPending.current = true;
-          // Consume the deferred expansion exactly once. Subsequent Focus-mode
-          // turns stay on the already-expanded rendition and must not resize.
           focusExpansionDeferredRef.current = false;
           setFocusExpansionDeferred(false);
           setSaveState('Expanding focus page…');
@@ -1718,7 +1255,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setPanel(null);
     try {
       if (book.format === 'epub' && rendition.current) {
-        invalidateFocusPagination.current('location-jump');
         setTurning(true);
         navigationPending.current = true;
         requestedCfi.current = location.startsWith('epubcfi(')
@@ -1728,11 +1264,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         const reported = await reportLatestLocation(rendition.current);
         persistEpubLocation(reported, requestedCfi.current);
         await writeQueue.current;
-        if (controlsVisibleRef.current)
-          scheduleFocusPagination.current(
-            reported.start.cfi,
-            'location-jump-settled',
-          );
         const details = current.current.epubPage;
         if (
           details &&
@@ -1829,14 +1360,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }`}
       aria-busy={loading}
     >
-      {book.format === 'epub' && (
-        <div
-          ref={focusCacheMount}
-          className="epub-focus-cache"
-          aria-hidden="true"
-          inert
-        />
-      )}
       <p id="reader-touch-help" className="sr-only">
         Tap the left or right side to turn pages. Tap the center to show or hide
         reading controls. Use the left and right arrow keys to turn pages and

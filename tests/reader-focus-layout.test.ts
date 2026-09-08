@@ -95,14 +95,9 @@ test('native reader toolbars do not apply safe-area padding twice', () => {
   assert.doesNotMatch(nativeRule('.reader-bottom'), /safe-area-inset-bottom/);
 });
 
-test('focus keeps one visible EPUB rendition and uses an inert background paginator', () => {
+test('focus reuses the single EPUB rendition instead of mounting a preview', () => {
   assert.equal(readerSource.match(/renderTo\(/g)?.length, 1);
-  assert.equal(readerSource.match(/new EpubRendition/g)?.length, 1);
-  assert.match(readerSource, /new EpubRendition\(localBook,/);
-  assert.match(
-    readerSource,
-    /ref=\{focusCacheMount\}[\s\S]*?className="epub-focus-cache"[\s\S]*?inert/,
-  );
+  assert.doesNotMatch(readerSource, /new EpubRendition|previewRendition/);
   assert.doesNotMatch(readerSource, /epub-focus-page|epubPreviewMount/);
   assert.doesNotMatch(
     readerSource,
@@ -137,48 +132,6 @@ test('focus requests made during navigation are queued and applied after saving'
   );
 });
 
-test('deferred Focus expansion is a Focus-only one-shot after a successful turn', () => {
-  assert.match(
-    readerSource,
-    /const expandFocusAfterTurn =\s*!controlsVisibleRef\.current &&\s*focusExpansionDeferredRef\.current;/,
-  );
-  assert.match(
-    readerSource,
-    /const shouldExpandFocusAfterTurn =\s*expandFocusAfterTurn &&\s*!controlsVisibleRef\.current &&\s*focusExpansionDeferredRef\.current;/,
-  );
-  assert.match(
-    readerSource,
-    /if \(shouldExpandFocusAfterTurn\) \{[\s\S]*?focusResizeTransition\.current = 'deferred-after-turn';[\s\S]*?focusExpansionDeferredRef\.current = false;/,
-  );
-});
-
-test('a completed Focus transition coalesces a duplicate observer resize', () => {
-  assert.match(
-    readerSource,
-    /focusResizeTransition\.current === 'layout' &&\s*viewportKey === lastCompletedViewportKey/,
-  );
-  assert.match(
-    readerSource,
-    /lastCompletedViewportKey = viewportKey;[\s\S]*?focusResizeTransition\.current = 'layout';/,
-  );
-  assert.match(readerSource, /\[reader-focus-cfi\] duplicate viewport skipped/);
-});
-
-test('Focus re-entry preserves an exact saved CFI contained by the normal page', () => {
-  assert.match(
-    readerSource,
-    /function locationContainsCfi\([\s\S]*?reader\.epubcfi\.compare\(location\.start\.cfi, cfi\) <= 0 &&[\s\S]*?reader\.epubcfi\.compare\(cfi, location\.end\.cfi\) <= 0/,
-  );
-  assert.match(
-    readerSource,
-    /focusPassageCfi\.current = savedCfiIsVisible\s*\? savedCfi\s*:\s*liveLocation\?\.start\?\.cfi/,
-  );
-  assert.match(
-    readerSource,
-    /const readingCfi =\s*focusPassageCfi\.current \|\|\s*\(locationContainsCfi\(r, liveLocation, savedCfi\)\s*\? savedCfi\s*:\s*liveLocation\?\.start\?\.cfi\)/,
-  );
-});
-
 test('focus measures visual undershoot and defers expansion without page correction', () => {
   const pendingCheck = readerSource.indexOf(
     'if (navigationPending.current)',
@@ -192,7 +145,7 @@ test('focus measures visual undershoot and defers expansion without page correct
   assert.ok(anchorCapture > pendingCheck);
   assert.match(
     readerSource,
-    /const liveLocation = r\.currentLocation\(\)[\s\S]*?const savedCfi = current\.current\.location;[\s\S]*?const readingCfi =\s*focusPassageCfi\.current \|\|[\s\S]*?locationContainsCfi\(r, liveLocation, savedCfi\)/,
+    /const liveLocation = r\.currentLocation\(\)[\s\S]*?const resizeCfi = focusPassageCfi\.current \|\| liveLocation\?\.start\?\.cfi;/,
   );
   assert.match(
     readerSource,
@@ -216,11 +169,11 @@ test('focus measures visual undershoot and defers expansion without page correct
   );
   assert.match(
     readerSource,
-    /r\.epubcfi\.compare\(restoredStartCfi, readingCfi\)/,
+    /r\.epubcfi\.compare\(restoredStartCfi, resizeCfi\)/,
   );
   assert.match(
     readerSource,
-    /measureFocusTarget\(r, readingCfi, restoredStartCfi\)/,
+    /measureFocusTarget\(r, resizeCfi, restoredStartCfi\)/,
   );
   assert.match(
     readerSource,
@@ -244,60 +197,4 @@ test('focus measures visual undershoot and defers expansion without page correct
   assert.match(readerSource, /\[reader-focus-cfi\] visual verification/);
   assert.doesNotMatch(readerSource, /const previous = anchor\.location/);
   assert.match(readerSource, /await resizeEpubAt\(/);
-});
-
-test('focus cache is refreshed after normal turns, settings, and location jumps', () => {
-  assert.match(
-    readerSource,
-    /scheduleFocusPagination\.current\([\s\S]*?'normal-page-turn'/,
-  );
-  assert.match(
-    readerSource,
-    /invalidateFocusPagination\.current\('reading-settings-changed'\)/,
-  );
-  assert.match(
-    readerSource,
-    /scheduleFocusPagination\.current\([\s\S]*?'settings-settled'/,
-  );
-  assert.match(
-    readerSource,
-    /'settings-settled',\s*FOCUS_CACHE_IDLE_DELAY_MS,\s*!controlsVisibleRef\.current/,
-  );
-  assert.match(
-    readerSource,
-    /\(!controlsVisibleRef\.current && !allowWhileFocused\)/,
-  );
-  assert.match(
-    readerSource,
-    /invalidateFocusPagination\.current\('location-jump'\)/,
-  );
-  assert.match(
-    readerSource,
-    /scheduleFocusPagination\.current\([\s\S]*?'location-jump-settled'/,
-  );
-  assert.match(
-    readerSource,
-    /scheduleFocusPagination\.current\(resumeCfi, 'focus-exit'\)/,
-  );
-  assert.match(readerSource, /delayMs = FOCUS_CACHE_IDLE_DELAY_MS/);
-});
-
-test('cache hits use an exact precomputed page but still retain the visual safety gate', () => {
-  assert.match(readerSource, /findFocusPage\(/);
-  assert.match(
-    readerSource,
-    /const resizeCfi =[\s\S]*?focusDisplayCfi\.current/,
-  );
-  assert.match(readerSource, /displayStartComparison === 0/);
-  assert.match(
-    readerSource,
-    /cacheVisuallyAccepted = cacheServed && metrics\.withinTolerance/,
-  );
-  assert.match(
-    readerSource,
-    /focusTransition === 'entry' && !metrics\.withinTolerance/,
-  );
-  assert.match(readerSource, /reason: 'fallback-deferred'/);
-  assert.match(readerSource, /\[reader-focus-cache\] entry decision/);
-  assert.match(readerSource, /\[reader-focus-cache\] precomputed/);
 });
