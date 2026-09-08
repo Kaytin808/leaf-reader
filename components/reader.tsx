@@ -865,11 +865,18 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
         }
+        const liveLocation = r.currentLocation() as unknown as
+          | Location
+          | undefined;
+        const resizeCfi = liveLocation?.start?.cfi;
+        if (!resizeCfi) {
+          setSaveState('Page fitting failed — place kept');
+          return;
+        }
         layoutReflow.current.begin(current.current);
         const snapshot = layoutReflow.current.snapshot();
         if (!snapshot) return;
-        const { anchor, revision } = snapshot;
-        const previous = anchor.location;
+        const { anchor: savedPosition, revision } = snapshot;
         navigationPending.current = true;
         setTurning(true);
         try {
@@ -877,11 +884,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             r,
             area.clientWidth,
             area.clientHeight,
-            previous || undefined,
+            resizeCfi,
           );
-          if (previous) {
-            await r.display(previous);
-          }
+          await r.display(resizeCfi);
           const reported = await reportLatestLocation(r);
           if (
             !cancelled &&
@@ -890,13 +895,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           ) {
             let sectionCount = 0;
             epub.current?.spine.each(() => sectionCount++);
-            requestedCfi.current = previous;
+            requestedCfi.current = resizeCfi;
             setAtStart(reported.atStart);
             setAtEnd(reported.atEnd);
             save(
               positionAfterReflow(
                 reported,
-                anchor,
+                savedPosition,
                 chapterData.current,
                 sectionCount,
                 settings.current.fontSize,

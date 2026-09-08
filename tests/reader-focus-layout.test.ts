@@ -135,5 +135,14 @@ test('focus captures its resize anchor only after navigation has settled', () =>
   );
   assert.ok(pendingCheck >= 0);
   assert.ok(anchorCapture > pendingCheck);
+  assert.match(
+    readerSource,
+    /const liveLocation = r\.currentLocation\(\)[\s\S]*?const resizeCfi = liveLocation\?\.start\?\.cfi;/,
+  );
+  assert.match(
+    readerSource,
+    /await resizeEpubAt\([\s\S]*?area\.clientHeight,\s*resizeCfi,\s*\);\s*await r\.display\(resizeCfi\);/,
+  );
+  assert.doesNotMatch(readerSource, /const previous = anchor\.location/);
   assert.match(readerSource, /await resizeEpubAt\(/);
 });
