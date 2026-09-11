@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
-const [project, info, reader, session] = await Promise.all([
+const [project, info, library, reader, session] = await Promise.all([
   read('project.yml'),
   read('Supporting/Info.plist'),
+  read('Sources/LibraryView.swift'),
   read('Sources/ReaderView.swift'),
   read('Sources/ReaderSession.swift'),
 ]);
@@ -12,6 +13,7 @@ const [project, info, reader, session] = await Promise.all([
 assert.match(project, /exactVersion: 3\.11\.0/, 'Readium must stay pinned for repeatable builds');
 assert.match(project, /com\.kaytin808\.kaylaslibrary\.readiumbeta/, 'beta bundle ID must be isolated');
 assert.match(info, /Kayla’s Library Beta/, 'beta must be visibly distinct from stable');
+assert.match(library, /\[\.epub, \.data\]/, 'Files picker must accept EPUBs from providers with generic data metadata');
 assert.match(reader, /safeAreaInset\(edge: \.top/, 'normal controls must reserve top space');
 assert.match(reader, /safeAreaInset\(edge: \.bottom/, 'normal controls must reserve bottom space');
 assert.match(reader, /statusBarHidden\(false\)/, 'Focus Mode must retain the iOS status area');

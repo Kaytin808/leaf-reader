@@ -8,7 +8,11 @@ struct LibraryView: View {
     @State private var openedBook: OpenedBook?
     @State private var errorMessage: String?
 
-    private let epubType = UTType(filenameExtension: "epub") ?? .data
+    // Use Apple's system-declared EPUB type directly. Some Files providers do
+    // not report the more-specific UTI consistently, so `data` is included as
+    // a picker fallback. LibraryStore still validates the .epub extension
+    // before copying or opening anything.
+    private let importTypes: [UTType] = [.epub, .data]
 
     var body: some View {
         NavigationStack {
@@ -46,7 +50,7 @@ struct LibraryView: View {
         }
         .fileImporter(
             isPresented: $importing,
-            allowedContentTypes: [epubType],
+            allowedContentTypes: importTypes,
             allowsMultipleSelection: false
         ) { result in
             switch result {
