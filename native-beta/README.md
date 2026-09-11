@@ -4,7 +4,7 @@ This is an isolated native SwiftUI experiment. It does not replace or migrate th
 
 ## Current beta scope
 
-- Import local, DRM-free EPUB files from the iOS Files picker, including providers that expose EPUBs as generic data files.
+- Import local, DRM-free EPUB files from the native iOS document picker, including providers that expose EPUBs with incorrect or generic type metadata.
 - Read with a single Readium navigator instance and resume from Readium's saved Locator.
 - Tap the left or right edge to change pages.
 - Lock page turns, change text size, and switch between light and night themes.

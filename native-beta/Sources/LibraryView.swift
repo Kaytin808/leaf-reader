@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @EnvironmentObject private var library: LibraryStore
@@ -7,12 +6,6 @@ struct LibraryView: View {
     @State private var openingID: UUID?
     @State private var openedBook: OpenedBook?
     @State private var errorMessage: String?
-
-    // Use Apple's system-declared EPUB type directly. Some Files providers do
-    // not report the more-specific UTI consistently, so `data` is included as
-    // a picker fallback. LibraryStore still validates the .epub extension
-    // before copying or opening anything.
-    private let importTypes: [UTType] = [.epub, .data]
 
     var body: some View {
         NavigationStack {
@@ -48,24 +41,24 @@ struct LibraryView: View {
                 }
             }
         }
-        .fileImporter(
-            isPresented: $importing,
-            allowedContentTypes: importTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task {
-                    do {
-                        try await library.importBook(from: url)
-                    } catch {
-                        errorMessage = error.localizedDescription
+        .sheet(isPresented: $importing) {
+            EPUBDocumentPicker(
+                onPick: { urls in
+                    importing = false
+                    guard let url = urls.first else { return }
+                    Task {
+                        do {
+                            try await library.importBook(from: url)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
                     }
+                },
+                onCancel: {
+                    importing = false
                 }
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-            }
+            )
+            .ignoresSafeArea()
         }
         .fullScreenCover(item: $openedBook) { opened in
             ReaderLoadingView(openedBook: opened)
