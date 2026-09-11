@@ -195,6 +195,32 @@ test('EPUB progress records the real table-of-contents chapter after a chapter c
   }
 });
 
+test('EPUB chapter headings are detected when navigation is missing', async () => {
+  const fixture = await JSZip.loadAsync(await epubFixture());
+  const opf = await fixture.file('OEBPS/content.opf')!.async('text');
+  fixture.file('OEBPS/content.opf', opf.replace(/<item id="nav"[^>]*\/>/, ''));
+  fixture.remove('OEBPS/nav.xhtml');
+  const { Book } = await import('epubjs');
+  const book = new Book({ replacements: 'blobUrl' });
+  try {
+    await book.open(
+      await prepareEpub(await fixture.generateAsync({ type: 'arraybuffer' })),
+      'binary',
+    );
+    await book.ready;
+    const chapters = await chapterIndex(book);
+    assert.deepEqual(
+      chapters.map(({ label, spineIndex }) => ({ label, spineIndex })),
+      [
+        { label: 'Chapter one', spineIndex: 0 },
+        { label: 'Chapter two', spineIndex: 1 },
+      ],
+    );
+  } finally {
+    book.destroy();
+  }
+});
+
 test('converted EPUBs with three chapters sharing the same wrapper navigate to distinct text positions', async () => {
   const zip = await JSZip.loadAsync(await epubFixture());
   zip.file(

@@ -50,23 +50,22 @@ Picker** in Kayla’s Library’s app-specific LiveContainer settings. See the
   keyboard focus, an easy-read font, text sizes up to 40px, and automatic
   reduced-motion, increased-contrast, and forced-color support.
 - Normal mode measures and reserves space for both toolbars so they never cover
-  the page. Focus hides those toolbars and expands the same EPUB rendition into
-  the freed space; it never mounts or synchronizes a second reader. The exact CFI
-  is retained while that one rendition resizes, and Next and Previous always act
-  on the reader already visible. iPhone safe-area spacing keeps the first line below
-  the status bar and Dynamic Island.
+  the page. Focus mode slides those toolbars away without changing the reading
+  viewport, repaginating the EPUB, or saving a different page. iPhone safe-area
+  spacing keeps the first line below the status bar and Dynamic Island.
 - The EPUB render surface fills the available reading row before a book opens,
   preventing blank pages in both normal and focus modes.
 - Resume always commits the page currently on screen when leaving the reader.
   Opening waits for the final viewport location before saving, and resize
   receives the same saved passage. Failed restoration leaves the saved place
   intact instead of silently opening and saving the beginning.
-- The lock button beside Focus, the matching floating lock in Focus mode, and
-  the Reading Settings switch can lock every page-turn gesture and button while
-  keeping center taps available to restore the controls. Native keep-awake is
-  automatic whenever the reader is open, so the iPhone does not auto-lock while
-  a book is being read.
-  EPUB open targets are consumed once so an older CFI cannot overwrite a newer
+- EPUB text selections can be highlighted and saved. The Saved highlights list
+  returns to the exact selected passage, and highlights remain available after
+  closing and reopening the app.
+- The lock button beside Focus, plus the matching floating button in Focus mode,
+  blocks page turns while leaving the controls accessible. Native keep-awake is
+  enabled automatically while the reader is visible so iPhone does not auto-lock.
+- EPUB open targets are consumed once so an older CFI cannot overwrite a newer
   reading position; PDF and TXT pages also receive a final save on exit.
 - Native reader toolbars use the root safe area once, removing excess blank
   space above and below the controls without allowing them to cover the page.

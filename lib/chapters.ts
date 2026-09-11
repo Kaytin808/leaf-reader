@@ -4,7 +4,7 @@ import type Section from 'epubjs/types/section';
 import type { Location } from 'epubjs/types/rendition';
 import type { Position } from './library';
 
-export const CHAPTER_HISTORY_VERSION = 3;
+export const CHAPTER_HISTORY_VERSION = 4;
 export type Chapter = {
   label: string;
   href: string;
@@ -17,6 +17,21 @@ type NavEntry = { label: string; href: string; subitems?: NavEntry[] };
 const compare = new EpubCFI();
 const normalize = (text: string) =>
   text.replace(/\s+/g, ' ').trim().toLowerCase();
+const numberedHeading =
+  /^(?:\d+|[ivxlcdm]+|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:[\s-]+(?:one|two|three|four|five|six|seven|eight|nine))?)$/i;
+const namedHeading =
+  /^(?:chapter|part|book|section)\b|^(?:prologue|epilogue|introduction|preface|foreword|afterword|appendix|acknowledg(?:e)?ments?)\b/i;
+
+function inferredChapterHeading(doc: Document) {
+  return Array.from(
+    doc.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]'),
+  ).filter((node) => {
+    if (node.closest('nav')) return false;
+    const label = node.textContent?.replace(/\s+/g, ' ').trim() || '';
+    if (!label || label.length > 100) return false;
+    return namedHeading.test(label) || numberedHeading.test(label);
+  });
+}
 
 // Text-point CFIs avoid ambiguous geometry in empty anchors and containers
 // spanning several columns, and use the same coordinates as page mapping.
@@ -105,6 +120,56 @@ export async function chapterIndex(book: Book): Promise<Chapter[]> {
     }
   }
   await visit(book.navigation.toc, 0);
+
+  // Some personal EPUBs omit their navigation document entirely. In that
+  // case, build the chapter list from semantic headings in the spine. When a
+  // publisher supplied navigation, keep it authoritative so ordinary headings
+  // in continuation files are not mistaken for new chapters.
+  if (!result.length) {
+    for (const section of sections) {
+      try {
+        await Promise.resolve(section.load(book.load.bind(book)));
+        const doc = section.document;
+        const body = doc.body || doc.documentElement;
+        const bodyStart = textStart(section, body);
+        const inferred = inferredChapterHeading(doc).map((heading) => ({
+          heading,
+          label: heading.textContent?.replace(/\s+/g, ' ').trim() || '',
+        }));
+        if (!inferred.length) {
+          const title = doc.title.replace(/\s+/g, ' ').trim();
+          if (
+            title &&
+            (namedHeading.test(title) || numberedHeading.test(title))
+          )
+            inferred.push({ heading: body, label: title });
+        }
+        for (const { heading, label } of inferred) {
+          if (!label) continue;
+          const cfi = textStart(section, heading);
+          const duplicate = result.some(
+            (chapter) =>
+              chapter.spineIndex === section.index &&
+              (compare.compare(chapter.cfi, cfi) === 0 ||
+                normalize(chapter.label) === normalize(label)),
+          );
+          if (duplicate) continue;
+          const id = heading.id ? `#${encodeURIComponent(heading.id)}` : '';
+          result.push({
+            label,
+            href: section.href + id,
+            depth: 0,
+            spineIndex: section.index,
+            cfi,
+            startsSection: cfi === bodyStart,
+          });
+        }
+      } catch {
+        /* A broken spine item must not hide chapters from the rest of the book. */
+      }
+    }
+  }
+
   return result.sort(
     (a, b) => compare.compare(a.cfi, b.cfi) || a.depth - b.depth,
   );

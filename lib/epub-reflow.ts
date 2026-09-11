@@ -37,8 +37,8 @@ export function positionAfterReflow(
   sections: number,
   fontSize: number,
 ): Position {
-  // Repagination never changes the anchored passage or reading progress. The
-  // screen-page counter is allowed to reflect the new viewport height.
+  // Repagination changes screen-page numbers, not the passage or reading
+  // progress. In particular, fitting the last page is not finishing the book.
   return repairChapterLabel(
     {
       ...positionForEpub(location, chapters, sections, undefined, fontSize),

@@ -24,24 +24,14 @@ type RestorableReader = LocationReader & {
   resize: (width: number, height: number, target?: string) => void;
 };
 
-type QueuedResizableReader = Pick<RestorableReader, 'resize'> & {
-  q?: {
-    enqueue: (task: () => unknown) => Promise<unknown>;
-  };
-};
-
 // The installed engine supports the third argument; its .d.ts omits it.
-// resize() also queues an internal display(target), but returns void. Add a
-// barrier behind that internal display so callers cannot accidentally start a
-// second display while the resized view is still being created.
-export async function resizeEpubAt(
-  reader: QueuedResizableReader,
+export function resizeEpubAt(
+  reader: Pick<RestorableReader, 'resize'>,
   width: number,
   height: number,
   target?: string,
 ) {
   reader.resize(width, height, target);
-  if (reader.q) await reader.q.enqueue(() => undefined);
 }
 
 export async function restoreEpubLocation(
@@ -56,7 +46,7 @@ export async function restoreEpubLocation(
     throw new Error('The reading area is not ready.');
   // EPUB.js also redisplays on resize. Give that internal display the saved
   // target too, rather than allowing its cached location to move us backward.
-  await resizeEpubAt(reader, width, height, target);
+  resizeEpubAt(reader, width, height, target);
   await reader.display(target);
   return reportLatestLocation(reader);
 }

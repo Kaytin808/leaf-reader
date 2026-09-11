@@ -25,6 +25,13 @@ export function positionLabel(position: Position) {
   return page ? `${position.label} · ${page}` : position.label;
 }
 export type Bookmark = Position & { id: string; createdAt: number };
+export type Highlight = Position & {
+  id: string;
+  createdAt: number;
+  cfiRange: string;
+  text: string;
+  color: 'yellow';
+};
 export type LibraryBook = {
   id: string;
   title: string;
@@ -45,6 +52,7 @@ export type LibraryBook = {
   coverLookup?: { query: string; checkedAt: number };
   position: Position;
   bookmarks: Bookmark[];
+  highlights?: Highlight[];
 };
 interface LibraryDB extends DBSchema {
   books: { key: string; value: LibraryBook };

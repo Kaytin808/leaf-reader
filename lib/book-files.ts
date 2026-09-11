@@ -47,6 +47,7 @@ export async function inspectFile(file: File): Promise<LibraryBook> {
     readingTimeMs: 0,
     position: { location: '', progress: 0, label: 'Not started' },
     bookmarks: [],
+    highlights: [],
     metadataVersion: METADATA_VERSION,
   };
   if (format === 'pdf') {

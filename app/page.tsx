@@ -155,6 +155,10 @@ export default function Home() {
             ...mark,
             ...repairChapterLabel(mark, chapters),
           })),
+          highlights: (latest.highlights || []).map((highlight) => ({
+            ...highlight,
+            ...repairChapterLabel(highlight, chapters),
+          })),
           chapterHistoryVersion: CHAPTER_HISTORY_VERSION,
         }));
       } catch {

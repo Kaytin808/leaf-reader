@@ -50,13 +50,15 @@ To check the standalone bundle on this computer:
   successful images are cached with the book. The existing/default cover is
   kept when there is no match or the network is unavailable. The book editor
   also offers **Find cover online** to retry or replace a cover.
-- EPUB chapter navigation, exact table-of-contents chapter history, and
-  font-independent CFI position bookmarks.
+- EPUB chapter navigation with semantic-heading fallback for files that omit a
+  table of contents, exact chapter history, and font-independent CFI bookmarks.
+- Persistent EPUB text highlights with saved-passage navigation.
 - PDF page navigation, page-number bookmarks and zoom.
 - TXT pagination, preserving all characters and stable logical pages.
 - Persistent light/dark app controls, plus paper, sepia, and night reader
   themes; EPUB/TXT font-size controls.
 - Saved library, reading progress, bookmarks, original-file download and confirmed removal.
+- Page-turn lock beside Focus mode and automatic keep-awake while reading.
 - Library search and reading/finished filters.
 - EPUB scripts and external navigation disabled; chapter sanitization and restrictive content policies.
 
