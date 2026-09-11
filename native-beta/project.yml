@@ -1,0 +1,52 @@
+name: KaylasLibraryReadiumBeta
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  Readium:
+    url: https://github.com/readium/swift-toolkit.git
+    exactVersion: 3.11.0
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+    SWIFT_STRICT_CONCURRENCY: minimal
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  KaylasLibraryReadiumBeta:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+      - path: Supporting/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    info:
+      path: Supporting/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kaytin808.kaylaslibrary.readiumbeta
+        PRODUCT_NAME: KaylasLibraryReadiumBeta
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: Readium
+        product: ReadiumShared
+      - package: Readium
+        product: ReadiumStreamer
+      - package: Readium
+        product: ReadiumNavigator
+schemes:
+  KaylasLibraryReadiumBeta:
+    build:
+      targets:
+        KaylasLibraryReadiumBeta: all
+    run:
+      config: Debug
+    archive:
+      config: Release

@@ -1,0 +1,87 @@
+name: Build Readium Beta IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - beta/readium-swiftui
+    paths:
+      - 'native-beta/**'
+      - '.github/workflows/readium-beta-ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readium-beta-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify beta isolation and Focus layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: node native-beta/Scripts/verify-beta.mjs
+
+  ios:
+    name: Build unsigned Readium beta IPA
+    needs: verify
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate and validate the native project
+        run: |
+          set -euo pipefail
+          cd native-beta
+          xcodegen generate --spec project.yml
+          plutil -lint Supporting/Info.plist Supporting/PrivacyInfo.xcprivacy
+          xcodebuild -resolvePackageDependencies \
+            -project KaylasLibraryReadiumBeta.xcodeproj \
+            -scheme KaylasLibraryReadiumBeta
+      - name: Archive for iPhone without Apple credentials
+        run: |
+          set -euo pipefail
+          mkdir -p build/readium-beta
+          xcodebuild archive \
+            -project native-beta/KaylasLibraryReadiumBeta.xcodeproj \
+            -scheme KaylasLibraryReadiumBeta \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/readium-beta/KaylasLibraryReadiumBeta.xcarchive" \
+            -derivedDataPath "$PWD/build/readium-beta/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            DEVELOPMENT_TEAM='' \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            2>&1 | tee build/readium-beta/xcodebuild.log
+      - name: Package and verify IPA
+        run: bash native-beta/Scripts/package-beta-ipa.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Kaylas-Library-Readium-Beta-unsigned-${{ github.run_number }}
+          path: |
+            build/readium-beta/Kaylas-Library-Readium-Beta-unsigned.ipa
+            build/readium-beta/Kaylas-Library-Readium-Beta-unsigned.ipa.sha256
+            native-beta/README.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Keep compilation log on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Readium-Beta-build-log-${{ github.run_number }}
+          path: build/readium-beta/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
