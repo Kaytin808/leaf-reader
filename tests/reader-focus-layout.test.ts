@@ -89,6 +89,7 @@ test('EPUB selection is stored as a reusable annotation and saved-location link'
   assert.match(readerSource, /r\.on\('selected'/);
   assert.match(readerSource, /doc\.addEventListener\('selectionchange'/);
   assert.match(readerSource, /doc\.addEventListener\('touchend'/);
+  assert.match(readerSource, /setInterval\(captureSelection, 400\)/);
   assert.match(
     readerSource,
     /contents\.cfiFromRange\(selection\.getRangeAt\(0\)\)/,
@@ -97,5 +98,10 @@ test('EPUB selection is stored as a reusable annotation and saved-location link'
   assert.match(readerSource, /annotations\.add\(/);
   assert.match(readerSource, /annotations\.remove\(highlight\.cfiRange/);
   assert.match(readerSource, /goTo\(highlight\.location\)/);
+  assert.match(
+    readerSource,
+    /onPointerDown=\{\(\) => void captureCurrentEpubSelection\(\)\}/,
+  );
+  assert.match(readerSource, /onClick=\{highlightOrOpenSaved\}/);
   assert.doesNotMatch(readerSource, /'mix-blend-mode': 'multiply'/);
 });

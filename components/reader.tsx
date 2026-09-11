@@ -143,8 +143,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [pendingHighlight, setPendingHighlight] = useState<Highlight | null>(
     null,
   );
+  const pendingHighlightRef = useRef<Highlight | null>(null);
   const pendingHighlightRange = useRef<string | null>(null);
   const selectedContents = useRef<Contents | null>(null);
+  const epubContents = useRef(new Set<Contents>());
   const [theme, setTheme] = useState<ReadingTheme>('paper');
   const [fontSize, setFontSize] = useState(
     DEFAULT_READING_PREFERENCES.fontSize,
@@ -265,6 +267,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     settings.current = { theme, fontSize, font, spacing, margin, alignment };
   }, [theme, fontSize, font, spacing, margin, alignment]);
+  const queueHighlight = useCallback((cfiRange: string, contents: Contents) => {
+    if (pendingHighlightRange.current === cfiRange)
+      return pendingHighlightRef.current;
+    const selectedText = contents.window.getSelection()?.toString() || '';
+    const draft = createHighlight(cfiRange, selectedText, current.current);
+    if (!draft) return null;
+    const repaired = {
+      ...draft,
+      ...repairChapterLabel(draft, chapterData.current),
+    };
+    pendingHighlightRange.current = cfiRange;
+    pendingHighlightRef.current = repaired;
+    selectedContents.current = contents;
+    setPendingHighlight(repaired);
+    return repaired;
+  }, []);
   const save = useCallback((next: Position, reachedEnd = false) => {
     const now = Date.now();
     const normalized = {
@@ -402,6 +420,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let loadingTask: PDFDocumentLoadingTask | undefined;
     let localBook: Book | undefined;
     const contentListeners = new Map<Contents, () => void>();
+    const renderedContents = epubContents.current;
     const timer = setTimeout(() => {
       if (!cancelled)
         setError(
@@ -487,25 +506,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             allowScriptedContent: false,
           });
           rendition.current = r;
-          const queueHighlight = (cfiRange: string, contents: Contents) => {
-            if (cancelled || pendingHighlightRange.current === cfiRange) return;
-            const selectedText =
-              contents.window.getSelection()?.toString() || '';
-            const draft = createHighlight(
-              cfiRange,
-              selectedText,
-              current.current,
-            );
-            if (!draft) return;
-            pendingHighlightRange.current = cfiRange;
-            selectedContents.current = contents;
-            setPendingHighlight({
-              ...draft,
-              ...repairChapterLabel(draft, indexedChapters),
-            });
-          };
           r.hooks.content.register((contents: Contents) => {
             const doc = contents.document;
+            renderedContents.add(contents);
             const disposeTaps = bindReaderTaps(doc, {
               enabled: () => !interaction.current.blocked,
               canTurn: () => !pageTurnsLockedRef.current,
@@ -556,9 +559,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             doc.addEventListener('mouseup', captureSelection, {
               passive: true,
             });
+            const selectionPoll = window.setInterval(captureSelection, 400);
             contentListeners.set(contents, () => {
               disposeTaps();
               window.clearTimeout(selectionTimer);
+              window.clearInterval(selectionPoll);
+              renderedContents.delete(contents);
               doc.removeEventListener('selectionchange', captureSelection);
               doc.removeEventListener('touchend', captureSelection);
               doc.removeEventListener('mouseup', captureSelection);
@@ -709,6 +715,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       clearTimeout(timer);
       for (const dispose of contentListeners.values()) dispose();
       contentListeners.clear();
+      renderedContents.clear();
       rendition.current = null;
       epubReady.current = false;
       epub.current = null;
@@ -722,7 +729,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [save, toggleControls]);
+  }, [queueHighlight, save, toggleControls]);
 
   useEffect(() => {
     try {
@@ -1067,11 +1074,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   function clearPendingHighlight() {
     selectedContents.current?.window.getSelection()?.removeAllRanges();
     selectedContents.current = null;
+    pendingHighlightRef.current = null;
     pendingHighlightRange.current = null;
     setPendingHighlight(null);
   }
-  async function savePendingHighlight() {
-    const highlight = pendingHighlight;
+  async function saveHighlight(highlight: Highlight | null) {
     if (!highlight) return;
     try {
       await writeQueue.current;
@@ -1101,6 +1108,31 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     } catch (e) {
       setError(errorMessage(e));
     }
+  }
+  async function savePendingHighlight() {
+    await saveHighlight(pendingHighlightRef.current);
+  }
+  function captureCurrentEpubSelection() {
+    for (const contents of epubContents.current) {
+      const selection = contents.window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed)
+        continue;
+      try {
+        const highlight = queueHighlight(
+          contents.cfiFromRange(selection.getRangeAt(0)),
+          contents,
+        );
+        if (highlight) return highlight;
+      } catch {
+        /* Continue in case another rendered EPUB frame owns the selection. */
+      }
+    }
+    return pendingHighlightRef.current;
+  }
+  function highlightOrOpenSaved() {
+    const highlight = captureCurrentEpubSelection();
+    if (highlight) void saveHighlight(highlight);
+    else setPanel('highlights');
   }
   async function deleteHighlight(highlight: Highlight) {
     try {
@@ -1268,10 +1300,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               </button>
               <button
                 className="icon-button"
-                aria-label="Saved highlights"
-                title="Saved highlights"
+                aria-label="Highlight selected text or view saved highlights"
+                title="Highlight selected text or view saved highlights"
                 disabled={loading}
-                onClick={() => setPanel('highlights')}
+                onPointerDown={() => void captureCurrentEpubSelection()}
+                onClick={highlightOrOpenSaved}
               >
                 <Highlighter size={20} />
               </button>
