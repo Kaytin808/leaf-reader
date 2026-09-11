@@ -87,8 +87,15 @@ test('page-turn lock stays beside Focus and blocks every navigation input', () =
 
 test('EPUB selection is stored as a reusable annotation and saved-location link', () => {
   assert.match(readerSource, /r\.on\('selected'/);
+  assert.match(readerSource, /doc\.addEventListener\('selectionchange'/);
+  assert.match(readerSource, /doc\.addEventListener\('touchend'/);
+  assert.match(
+    readerSource,
+    /contents\.cfiFromRange\(selection\.getRangeAt\(0\)\)/,
+  );
   assert.match(readerSource, /createHighlight\(/);
   assert.match(readerSource, /annotations\.add\(/);
   assert.match(readerSource, /annotations\.remove\(highlight\.cfiRange/);
   assert.match(readerSource, /goTo\(highlight\.location\)/);
+  assert.doesNotMatch(readerSource, /'mix-blend-mode': 'multiply'/);
 });

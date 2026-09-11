@@ -102,7 +102,6 @@ const palette = {
 const highlightStyles = {
   fill: '#f6c453',
   'fill-opacity': '0.42',
-  'mix-blend-mode': 'multiply',
 };
 export default function Reader({ book, onClose, onUpdate }: Props) {
   const appTheme = useAppTheme();
@@ -144,6 +143,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [pendingHighlight, setPendingHighlight] = useState<Highlight | null>(
     null,
   );
+  const pendingHighlightRange = useRef<string | null>(null);
   const selectedContents = useRef<Contents | null>(null);
   const [theme, setTheme] = useState<ReadingTheme>('paper');
   const [fontSize, setFontSize] = useState(
@@ -487,28 +487,82 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             allowScriptedContent: false,
           });
           rendition.current = r;
+          const queueHighlight = (cfiRange: string, contents: Contents) => {
+            if (cancelled || pendingHighlightRange.current === cfiRange) return;
+            const selectedText =
+              contents.window.getSelection()?.toString() || '';
+            const draft = createHighlight(
+              cfiRange,
+              selectedText,
+              current.current,
+            );
+            if (!draft) return;
+            pendingHighlightRange.current = cfiRange;
+            selectedContents.current = contents;
+            setPendingHighlight({
+              ...draft,
+              ...repairChapterLabel(draft, indexedChapters),
+            });
+          };
           r.hooks.content.register((contents: Contents) => {
             const doc = contents.document;
-            contentListeners.set(
-              contents,
-              bindReaderTaps(doc, {
-                enabled: () => !interaction.current.blocked,
-                canTurn: () => !pageTurnsLockedRef.current,
-                bounds: () => {
-                  // A paginated EPUB iframe can be wider than the visible page.
-                  const frame =
-                    contents.window.frameElement?.getBoundingClientRect();
-                  const area = mount.current?.getBoundingClientRect();
-                  return {
-                    left: (area?.left ?? 0) - (frame?.left ?? 0),
-                    width: area?.width ?? contents.window.innerWidth,
-                  };
-                },
-                turn: (direction) => void turnRef.current(direction),
-                center: toggleControls,
-                image: (image) => setPicture(image),
-              }),
-            );
+            const disposeTaps = bindReaderTaps(doc, {
+              enabled: () => !interaction.current.blocked,
+              canTurn: () => !pageTurnsLockedRef.current,
+              bounds: () => {
+                // A paginated EPUB iframe can be wider than the visible page.
+                const frame =
+                  contents.window.frameElement?.getBoundingClientRect();
+                const area = mount.current?.getBoundingClientRect();
+                return {
+                  left: (area?.left ?? 0) - (frame?.left ?? 0),
+                  width: area?.width ?? contents.window.innerWidth,
+                };
+              },
+              turn: (direction) => void turnRef.current(direction),
+              center: toggleControls,
+              image: (image) => setPicture(image),
+            });
+            let selectionTimer = 0;
+            const captureSelection = () => {
+              window.clearTimeout(selectionTimer);
+              selectionTimer = window.setTimeout(() => {
+                const selection = contents.window.getSelection();
+                if (
+                  !selection ||
+                  selection.rangeCount === 0 ||
+                  selection.isCollapsed
+                )
+                  return;
+                try {
+                  queueHighlight(
+                    contents.cfiFromRange(selection.getRangeAt(0)),
+                    contents,
+                  );
+                } catch {
+                  /* Ignore a selection that disappeared during iOS handle movement. */
+                }
+              }, 350);
+            };
+            // epub.js normally forwards its own `selected` event. WKWebView can
+            // omit that event after native selection handles are used, so read
+            // the completed iframe selection directly as a fallback.
+            doc.addEventListener('selectionchange', captureSelection, {
+              passive: true,
+            });
+            doc.addEventListener('touchend', captureSelection, {
+              passive: true,
+            });
+            doc.addEventListener('mouseup', captureSelection, {
+              passive: true,
+            });
+            contentListeners.set(contents, () => {
+              disposeTaps();
+              window.clearTimeout(selectionTimer);
+              doc.removeEventListener('selectionchange', captureSelection);
+              doc.removeEventListener('touchend', captureSelection);
+              doc.removeEventListener('mouseup', captureSelection);
+            });
           });
           r.hooks.unloaded.register((view: { contents?: Contents }) => {
             if (view.contents) {
@@ -588,20 +642,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               highlightStyles,
             );
           r.on('selected', (cfiRange: string, contents: Contents) => {
-            if (cancelled) return;
-            const selectedText =
-              contents.window.getSelection()?.toString() || '';
-            const draft = createHighlight(
-              cfiRange,
-              selectedText,
-              current.current,
-            );
-            if (!draft) return;
-            selectedContents.current = contents;
-            setPendingHighlight({
-              ...draft,
-              ...repairChapterLabel(draft, indexedChapters),
-            });
+            queueHighlight(cfiRange, contents);
           });
           r.on('displayError', () => {
             if (!cancelled)
@@ -1026,6 +1067,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   function clearPendingHighlight() {
     selectedContents.current?.window.getSelection()?.removeAllRanges();
     selectedContents.current = null;
+    pendingHighlightRange.current = null;
     setPendingHighlight(null);
   }
   async function savePendingHighlight() {
