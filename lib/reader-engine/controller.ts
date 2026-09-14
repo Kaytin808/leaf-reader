@@ -29,6 +29,10 @@ export class EnginePositionController {
     this.authority.seed(position);
   }
 
+  current() {
+    return this.authority.current();
+  }
+
   observe(observation: EnginePositionObservation) {
     const revision = this.authority.beginCapture();
     const operationId = crypto.randomUUID();
@@ -106,8 +110,12 @@ export class EnginePositionController {
   }
 
   async flush() {
+    await this.settle();
+    this.diagnostics.export();
+  }
+
+  async settle() {
     await Promise.allSettled(this.captures);
     await this.persistence;
-    this.diagnostics.export();
   }
 }

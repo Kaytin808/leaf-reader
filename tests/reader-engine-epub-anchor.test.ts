@@ -35,7 +35,7 @@ async function fixture() {
   );
   zip.file(
     'OEBPS/chapter.xhtml',
-    '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><p id="passage">Before the lantern dimmed, the navigator recorded this exact sentence for recovery and then continued onward.</p></body></html>',
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body><h1 id="chapter-heading">CHAPTER</h1><p id="passage">Before the lantern dimmed, the navigator recorded this exact sentence for recovery and then continued onward.</p></body></html>',
   );
   return zip.generateAsync({ type: 'arraybuffer' });
 }
@@ -75,6 +75,35 @@ test('real EPUB CFI captures and recovers the same text-quote anchor', async () 
     assert.ok(recovered?.startsWith('epubcfi('));
     assert.equal(
       await anchors.verifyEpubTextAnchor(book, recovered!, captured.quote),
+      true,
+    );
+  } finally {
+    book.destroy();
+  }
+});
+
+test('chapter-boundary CFI skips a short heading and captures readable text', async () => {
+  const [{ Book }, { prepareEpub }, anchors] = await Promise.all([
+    import('epubjs'),
+    import('../lib/book-files'),
+    import('../lib/reader-engine/epub-text-anchor'),
+  ]);
+  const book = new Book({ replacements: 'blobUrl' });
+  try {
+    await book.open(await prepareEpub(await fixture()), 'binary');
+    await book.ready;
+    const section = book.section(0);
+    await Promise.resolve(section.load(book.load.bind(book)));
+    const heading = section.document.querySelector('#chapter-heading')!;
+    const range = section.document.createRange();
+    range.setStart(heading, 0);
+    range.collapse(true);
+    const cfi = section.cfiFromRange(range);
+
+    const captured = await anchors.captureEpubTextAnchor(book, cfi);
+    assert.match(captured.quote.exact, /^Before the lantern dimmed/);
+    assert.equal(
+      await anchors.verifyEpubTextAnchor(book, cfi, captured.quote),
       true,
     );
   } finally {

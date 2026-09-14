@@ -25,6 +25,7 @@ type RecordEvent = {
   result: PositionDiagnosticResult;
   reason?: string;
   startedAt?: number;
+  navigation?: PositionDiagnosticsLog['events'][number]['navigation'];
 };
 
 export class PositionDiagnostics {
@@ -37,8 +38,8 @@ export class PositionDiagnostics {
       sessionId: crypto.randomUUID(),
       exportedAt: new Date().toISOString(),
       app: {
-        version: `${version}-engine-beta.1`,
-        engine: 'v2-position',
+        version: `${version}-engine-beta.2`,
+        engine: 'v2-position-navigation',
         featureFlagEnabled: true,
       },
       book: { bookIdHash, format: 'epub' },
@@ -70,6 +71,9 @@ export class PositionDiagnostics {
       layoutSignature: structuredClone(position.layoutSignature),
       result: event.result,
       reason: event.reason ?? null,
+      ...(event.navigation && {
+        navigation: structuredClone(event.navigation),
+      }),
       durationMs: Math.max(
         0,
         Math.round(performance.now() - (event.startedAt ?? performance.now())),

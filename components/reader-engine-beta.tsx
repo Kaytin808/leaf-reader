@@ -6,6 +6,7 @@ import { prepareEpub } from '@/lib/book-files';
 import { getFile, type LibraryBook } from '@/lib/library';
 import { EnginePositionController } from '@/lib/reader-engine/controller';
 import { PositionDiagnostics } from '@/lib/reader-engine/diagnostics';
+import { EngineNavigationController } from '@/lib/reader-engine/navigation-controller';
 import {
   captureEpubTextAnchor,
   recoverEpubCfi,
@@ -26,6 +27,7 @@ type Props = {
 type PreparedReader = {
   book: LibraryBook;
   controller?: EnginePositionController;
+  navigation?: EngineNavigationController;
 };
 
 export default function EngineBetaReader({ book, onClose, onUpdate }: Props) {
@@ -47,10 +49,14 @@ export default function EngineBetaReader({ book, onClose, onUpdate }: Props) {
       try {
         const diagnostics = await PositionDiagnostics.create(book.id);
         const controller = new EnginePositionController(book.id, diagnostics);
+        const navigation = new EngineNavigationController(
+          controller,
+          diagnostics,
+        );
         const stored = await getEnginePosition(book.id);
         controller.seed(stored);
         if (!stored) {
-          if (!cancelled) setPrepared({ book, controller });
+          if (!cancelled) setPrepared({ book, controller, navigation });
           return;
         }
 
@@ -156,6 +162,7 @@ export default function EngineBetaReader({ book, onClose, onUpdate }: Props) {
         if (!cancelled) {
           setPrepared({
             controller,
+            navigation,
             book: resolved
               ? {
                   ...book,
@@ -205,8 +212,11 @@ export default function EngineBetaReader({ book, onClose, onUpdate }: Props) {
       book={prepared.book}
       onUpdate={onUpdate}
       enginePositionController={prepared.controller}
+      engineNavigationController={prepared.navigation}
       onClose={() => {
-        if (prepared.controller)
+        if (prepared.navigation)
+          void prepared.navigation.flush().finally(onClose);
+        else if (prepared.controller)
           void prepared.controller.flush().finally(onClose);
         else onClose();
       }}

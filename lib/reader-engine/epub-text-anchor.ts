@@ -3,22 +3,39 @@ import type Section from 'epubjs/types/section';
 import { createTextQuote, normalizeQuoteText } from './position-model';
 import type { TextQuoteAnchor } from './types';
 
-function textNodeAt(range: Range) {
-  if (range.startContainer.nodeType === Node.TEXT_NODE)
-    return range.startContainer as Text;
+function readableTextAt(range: Range) {
   const document = range.startContainer.ownerDocument;
-  const walker = document?.createTreeWalker(
-    range.startContainer,
-    NodeFilter.SHOW_TEXT,
-  );
-  return walker?.nextNode() as Text | null;
+  const root = document?.body ?? document?.documentElement;
+  if (!document || !root) return null;
+  if (range.startContainer.nodeType === Node.TEXT_NODE) {
+    const node = range.startContainer as Text;
+    if (normalizeQuoteText(node.data.slice(range.startOffset)).length >= 8)
+      return { node, rawOffset: range.startOffset };
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const startToStart = document.defaultView?.Range.START_TO_START ?? 0;
+  let node = walker.nextNode() as Text | null;
+  while (node) {
+    if (range.startContainer !== node) {
+      const nodeStart = document.createRange();
+      nodeStart.setStart(node, 0);
+      nodeStart.collapse(true);
+      const startsAtOrAfterAnchor =
+        range.compareBoundaryPoints(startToStart, nodeStart) <= 0;
+      if (startsAtOrAfterAnchor && normalizeQuoteText(node.data).length >= 8)
+        return { node, rawOffset: 0 };
+    }
+    node = walker.nextNode() as Text | null;
+  }
+  return null;
 }
 
 export async function captureEpubTextAnchor(book: Book, cfi: string) {
   const range = await book.getRange(cfi);
-  const node = textNodeAt(range);
-  if (!node?.data) throw new Error('cfi-has-no-text');
-  let rawOffset = range.startContainer === node ? range.startOffset : 0;
+  const readable = readableTextAt(range);
+  if (!readable?.node.data) throw new Error('cfi-has-no-readable-text');
+  const { node } = readable;
+  let { rawOffset } = readable;
   while (rawOffset < node.data.length && /\s/.test(node.data[rawOffset]))
     rawOffset++;
   const leadingWhitespace = node.data.match(/^\s*/)?.[0].length ?? 0;

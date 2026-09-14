@@ -103,6 +103,7 @@ jobs:
             build/Kaylas-Library-Engine-Beta-unsigned.ipa
             build/Kaylas-Library-Engine-Beta-unsigned.ipa.sha256
             docs/ENGINE-BETA-MILESTONE-1.md
+            docs/ENGINE-BETA-MILESTONE-2.md
           if-no-files-found: error
           retention-days: 30
       - name: Keep compilation log on failure

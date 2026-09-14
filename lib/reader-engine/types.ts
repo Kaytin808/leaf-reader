@@ -45,13 +45,20 @@ export type PositionDiagnosticType =
   | 'restore.verify'
   | 'restore.recover'
   | 'restore.commit'
-  | 'restore.reject';
+  | 'restore.reject'
+  | 'navigation.enqueue'
+  | 'navigation.start'
+  | 'navigation.complete'
+  | 'navigation.fail';
 
 export type PositionDiagnosticResult =
   | 'success'
   | 'mismatch'
   | 'recovered'
-  | 'rejected';
+  | 'rejected'
+  | 'queued'
+  | 'started'
+  | 'failed';
 
 export type PositionDiagnosticEvent = {
   sequence: number;
@@ -72,6 +79,20 @@ export type PositionDiagnosticEvent = {
   result: PositionDiagnosticResult;
   reason: string | null;
   durationMs: number;
+  navigation?: {
+    kind:
+      | 'restore'
+      | 'turn'
+      | 'jump'
+      | 'font-reflow'
+      | 'viewport-reflow'
+      | 'close';
+    direction: -1 | 1 | null;
+    sequence: number;
+    queueDepthAtEnqueue: number;
+    waitMs: number;
+    operationDurationMs: number;
+  };
 };
 
 export type PositionDiagnosticsLog = {
@@ -80,7 +101,7 @@ export type PositionDiagnosticsLog = {
   exportedAt: string;
   app: {
     version: string;
-    engine: 'v2-position';
+    engine: 'v2-position-navigation';
     featureFlagEnabled: true;
   };
   book: {

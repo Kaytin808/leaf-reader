@@ -561,7 +561,7 @@ export default function Home() {
                   setEngineEnabled(enabled);
                   setNotice(
                     enabled
-                      ? 'Engine V2 position model enabled.'
+                      ? 'Engine V2 position and navigation enabled.'
                       : 'Legacy engine restored. Engine V2 storage will not be opened.',
                   );
                 }}

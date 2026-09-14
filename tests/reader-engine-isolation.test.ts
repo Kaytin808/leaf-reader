@@ -25,9 +25,11 @@ test('Engine Beta has a separate app identity and both beta databases are isolat
 });
 
 test('Engine V2 is lazy-mounted only behind the beta feature flag', async () => {
-  const [page, flags] = await Promise.all([
+  const [page, flags, reader, betaReader] = await Promise.all([
     source('app/page.tsx'),
     source('lib/reader-engine/feature-flags.ts'),
+    source('components/reader.tsx'),
+    source('components/reader-engine-beta.tsx'),
   ]);
   assert.match(
     page,
@@ -35,6 +37,19 @@ test('Engine V2 is lazy-mounted only behind the beta feature flag', async () => 
   );
   assert.match(page, /isEngineBetaBuild && engineEnabled/);
   assert.match(flags, /return false/);
+  assert.match(
+    reader,
+    /engineNavigation\.current\?\.run\(request, execute\) \?\? execute\(\)/,
+  );
+  assert.match(
+    betaReader,
+    /engineNavigationController=\{prepared\.navigation\}/,
+  );
+  const legacyReaderBranch = page.match(
+    /:\s*\(\s*<Reader[\s\S]+?\/>\s*\)/,
+  )?.[0];
+  assert.ok(legacyReaderBranch);
+  assert.doesNotMatch(legacyReaderBranch, /engineNavigationController/);
 });
 
 test('diagnostics schema hashes book identity and quote text instead of exporting either', async () => {

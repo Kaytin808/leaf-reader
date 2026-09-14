@@ -18,24 +18,34 @@ assert.ok(files.some((path) => /reader-engine-beta.*\.js$/.test(path)));
 assert.equal(config.appId, 'com.kaytin808.leafreader.enginebeta');
 assert.equal(config.appName, 'Kayla’s Library Engine Beta');
 
-const [info, project, library, engineStorage, page, diagnostics] =
-  await Promise.all([
-    readFile(new URL('../ios/App/App/Info.plist', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../ios/App/App.xcodeproj/project.pbxproj', import.meta.url),
-      'utf8',
-    ),
-    readFile(new URL('../lib/library.ts', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../lib/reader-engine/storage.ts', import.meta.url),
-      'utf8',
-    ),
-    readFile(new URL('../app/page.tsx', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../lib/reader-engine/diagnostics.ts', import.meta.url),
-      'utf8',
-    ),
-  ]);
+const [
+  info,
+  project,
+  library,
+  engineStorage,
+  page,
+  diagnostics,
+  reader,
+  betaReader,
+] = await Promise.all([
+  readFile(new URL('../ios/App/App/Info.plist', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../ios/App/App.xcodeproj/project.pbxproj', import.meta.url),
+    'utf8',
+  ),
+  readFile(new URL('../lib/library.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../lib/reader-engine/storage.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../app/page.tsx', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../lib/reader-engine/diagnostics.ts', import.meta.url),
+    'utf8',
+  ),
+  readFile(new URL('../components/reader.tsx', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../components/reader-engine-beta.tsx', import.meta.url),
+    'utf8',
+  ),
+]);
 assert.match(info, /Kayla’s Library Engine Beta/);
 assert.match(project, /com\.kaytin808\.leafreader\.enginebeta/);
 assert.match(library, /leaf-library-engine-beta/);
@@ -43,5 +53,15 @@ assert.match(engineStorage, /leaf-reader-engine-v2/);
 assert.match(page, /isEngineBetaBuild && engineEnabled/);
 assert.match(diagnostics, /exactHash|prefixHash|suffixHash/);
 assert.doesNotMatch(diagnostics, /title|author|filename/);
+for (const kind of [
+  'restore',
+  'turn',
+  'jump',
+  'font-reflow',
+  'viewport-reflow',
+  'close',
+])
+  assert.match(reader, new RegExp(`kind: '${kind}'`));
+assert.match(betaReader, /engineNavigationController=\{prepared\.navigation\}/);
 
 console.log('Verified isolated Engine Beta assets:', fileURLToPath(root));

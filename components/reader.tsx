@@ -79,6 +79,8 @@ import type {
   EnginePositionObservation,
   EnginePositionController,
 } from '@/lib/reader-engine/controller';
+import type { EngineNavigationController } from '@/lib/reader-engine/navigation-controller';
+import type { EngineNavigationRequest } from '@/lib/reader-engine/navigation-queue';
 import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
@@ -97,7 +99,14 @@ type Props = {
   book: LibraryBook;
   onClose: () => void;
   onUpdate: (book: LibraryBook) => void;
-  enginePositionController?: Pick<EnginePositionController, 'observe'>;
+  enginePositionController?: Pick<
+    EnginePositionController,
+    'observe' | 'settle'
+  >;
+  engineNavigationController?: Pick<
+    EngineNavigationController,
+    'pending' | 'run'
+  >;
 };
 const palette = {
   paper: { bg: '#ffffff', fg: '#243349' },
@@ -113,6 +122,7 @@ export default function Reader({
   onClose,
   onUpdate,
   enginePositionController,
+  engineNavigationController,
 }: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
@@ -126,6 +136,10 @@ export default function Reader({
   useEffect(() => {
     engineObserver.current = enginePositionController;
   }, [enginePositionController]);
+  const engineNavigation = useRef(engineNavigationController);
+  useEffect(() => {
+    engineNavigation.current = engineNavigationController;
+  }, [engineNavigationController]);
   const mount = useRef<HTMLElement>(null);
   const readerRoot = useRef<HTMLDivElement>(null);
   const readerHeader = useRef<HTMLElement>(null);
@@ -187,10 +201,26 @@ export default function Reader({
   );
   const pageTurnsLockedRef = useRef(pageTurnsLocked);
   pageTurnsLockedRef.current = pageTurnsLocked;
+  const navigationPending = useRef(false);
+  const navigationIsPending = useCallback(
+    () => engineNavigation.current?.pending ?? navigationPending.current,
+    [],
+  );
+  const setLegacyNavigationPending = useCallback((pending: boolean) => {
+    if (!engineNavigation.current) navigationPending.current = pending;
+  }, []);
+  const runEpubNavigation = useCallback(
+    <T,>(request: EngineNavigationRequest, execute: () => Promise<T>) =>
+      engineNavigation.current?.run(request, execute) ?? execute(),
+    [],
+  );
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
   const setReaderControls = useCallback((visible: boolean) => {
-    if (controlsVisibleRef.current === visible || navigationPending.current)
+    if (
+      controlsVisibleRef.current === visible ||
+      (!engineNavigation.current && navigationPending.current)
+    )
       return;
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
@@ -260,7 +290,6 @@ export default function Reader({
   interaction.current.blocked =
     loading || turning || closing || !!panel || !!picture || !!pendingHighlight;
   const requestedCfi = useRef<string | undefined>(undefined);
-  const navigationPending = useRef(false);
   const previousAppTheme = useRef(appTheme.theme);
   const storedReaderTheme = useRef(false);
   useEffect(() => {
@@ -654,7 +683,7 @@ export default function Reader({
             if (
               cancelled ||
               !epubReady.current ||
-              navigationPending.current ||
+              navigationIsPending() ||
               layoutReflow.current.pending
             )
               return;
@@ -712,32 +741,40 @@ export default function Reader({
           // displayed in the final toolbar-sized viewport. Never fall back to
           // the beginning and overwrite a saved place if restoration fails.
           const resume = initial.current.position.location || undefined;
-          navigationPending.current = true;
+          setLegacyNavigationPending(true);
           try {
-            const restored = await restoreEpubLocation(r, resume, () => ({
-              width: cancelled ? 0 : (mount.current?.clientWidth ?? 0),
-              height: cancelled ? 0 : (mount.current?.clientHeight ?? 0),
-            }));
-            if (cancelled) return;
-            let sectionCount = 0;
-            localBook.spine.each(() => sectionCount++);
-            save(
-              positionForEpub(
-                restored,
-                indexedChapters,
-                sectionCount,
-                resume,
-                settings.current.fontSize,
-              ),
-              restored.atEnd,
+            const restored = await runEpubNavigation(
+              { kind: 'restore' },
+              async () => {
+                const restored = await restoreEpubLocation(r, resume, () => ({
+                  width: cancelled ? 0 : (mount.current?.clientWidth ?? 0),
+                  height: cancelled ? 0 : (mount.current?.clientHeight ?? 0),
+                }));
+                if (cancelled) return restored;
+                let sectionCount = 0;
+                localBook?.spine.each(() => sectionCount++);
+                save(
+                  positionForEpub(
+                    restored,
+                    indexedChapters,
+                    sectionCount,
+                    resume,
+                    settings.current.fontSize,
+                  ),
+                  restored.atEnd,
+                );
+                requestedCfi.current = undefined;
+                if (engineNavigation.current) await writeQueue.current;
+                return restored;
+              },
             );
-            requestedCfi.current = undefined;
+            if (cancelled) return;
             epubReady.current = true;
             setAtStart(restored.atStart);
             setAtEnd(restored.atEnd);
             setLoading(false);
           } finally {
-            navigationPending.current = false;
+            setLegacyNavigationPending(false);
           }
         }
       } catch (e) {
@@ -769,7 +806,14 @@ export default function Reader({
       }
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [queueHighlight, save, toggleControls]);
+  }, [
+    navigationIsPending,
+    queueHighlight,
+    runEpubNavigation,
+    save,
+    setLegacyNavigationPending,
+    toggleControls,
+  ]);
 
   useEffect(() => {
     try {
@@ -833,52 +877,67 @@ export default function Reader({
     const reflow = async () => {
       if (cancelled || rendition.current !== r) return;
       if (!epubReady.current) return;
-      if (navigationPending.current || layoutReflow.current.pending) {
+      if (navigationIsPending() || layoutReflow.current.pending) {
         timer = setTimeout(() => void reflow(), 80);
         return;
       }
-      navigationPending.current = true;
+      setLegacyNavigationPending(true);
       setTurning(true);
       const previous = current.current.location;
       try {
-        engineCaptureSource.current = 'font-change';
-        r.themes.override('color', palette[theme].fg, true);
-        r.themes.override('background', palette[theme].bg, true);
-        if (reflowableEpub.current) {
-          r.themes.override('font-family', FONT_STACKS[font], true);
-          r.themes.override('letter-spacing', LETTER_SPACING[font], true);
-          r.themes.override('line-height', String(LINE_HEIGHTS[spacing]), true);
-          r.themes.override('text-align', alignment, true);
-          r.themes.override('padding-left', `${PAGE_MARGINS[margin]}px`, true);
-          r.themes.override('padding-right', `${PAGE_MARGINS[margin]}px`, true);
-          r.themes.fontSize(`${fontSize}px`);
-        }
-        if (previous) await r.display(previous);
-        const reported = await reportLatestLocation(r);
-        if (!cancelled) {
-          let count = 0;
-          epub.current?.spine.each(() => count++);
-          requestedCfi.current = previous;
-          setAtStart(reported.atStart);
-          setAtEnd(reported.atEnd);
-          save(
-            positionAfterReflow(
-              reported,
-              current.current,
-              chapterData.current,
-              count,
-              fontSize,
-            ),
-          );
-          requestedCfi.current = undefined;
-        }
+        await runEpubNavigation({ kind: 'font-reflow' }, async () => {
+          engineCaptureSource.current = 'font-change';
+          r.themes.override('color', palette[theme].fg, true);
+          r.themes.override('background', palette[theme].bg, true);
+          if (reflowableEpub.current) {
+            r.themes.override('font-family', FONT_STACKS[font], true);
+            r.themes.override('letter-spacing', LETTER_SPACING[font], true);
+            r.themes.override(
+              'line-height',
+              String(LINE_HEIGHTS[spacing]),
+              true,
+            );
+            r.themes.override('text-align', alignment, true);
+            r.themes.override(
+              'padding-left',
+              `${PAGE_MARGINS[margin]}px`,
+              true,
+            );
+            r.themes.override(
+              'padding-right',
+              `${PAGE_MARGINS[margin]}px`,
+              true,
+            );
+            r.themes.fontSize(`${fontSize}px`);
+          }
+          if (previous) await r.display(previous);
+          const reported = await reportLatestLocation(r);
+          if (!cancelled) {
+            let count = 0;
+            epub.current?.spine.each(() => count++);
+            requestedCfi.current = previous;
+            setAtStart(reported.atStart);
+            setAtEnd(reported.atEnd);
+            save(
+              positionAfterReflow(
+                reported,
+                current.current,
+                chapterData.current,
+                count,
+                fontSize,
+              ),
+            );
+            requestedCfi.current = undefined;
+            if (engineNavigation.current) await writeQueue.current;
+          }
+        });
       } catch {
         if (!cancelled)
           setError(
             'Could not finish resizing the text. Try adjusting the text size again.',
           );
       } finally {
-        navigationPending.current = false;
+        setLegacyNavigationPending(false);
         if (rendition.current === r) setTurning(false);
       }
     };
@@ -888,7 +947,18 @@ export default function Reader({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [theme, fontSize, font, spacing, margin, alignment, save]);
+  }, [
+    theme,
+    fontSize,
+    font,
+    spacing,
+    margin,
+    alignment,
+    navigationIsPending,
+    runEpubNavigation,
+    save,
+    setLegacyNavigationPending,
+  ]);
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
@@ -936,7 +1006,10 @@ export default function Reader({
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
-      layoutReflow.current.begin(current.current);
+      // Legacy retains its existing anchor timing. V2 captures only after the
+      // navigation queue is idle so a resize can never anchor to an older turn.
+      if (!engineNavigation.current)
+        layoutReflow.current.begin(current.current);
       setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
@@ -944,47 +1017,52 @@ export default function Reader({
         const r = rendition.current;
         if (cancelled || !area || !r) return;
         if (!epubReady.current) return;
-        if (navigationPending.current) {
+        if (navigationIsPending()) {
           timer = setTimeout(() => void resizeAtCurrentPage(), 80);
           return;
         }
+        if (engineNavigation.current)
+          layoutReflow.current.begin(current.current);
         const snapshot = layoutReflow.current.snapshot();
         if (!snapshot) return;
         const { anchor, revision } = snapshot;
         const previous = anchor.location;
-        navigationPending.current = true;
+        setLegacyNavigationPending(true);
         setTurning(true);
         try {
-          resizeEpubAt(
-            r,
-            area.clientWidth,
-            area.clientHeight,
-            previous || undefined,
-          );
-          if (previous) await r.display(previous);
-          const reported = await reportLatestLocation(r);
-          if (
-            !cancelled &&
-            rendition.current === r &&
-            layoutReflow.current.finish(revision)
-          ) {
-            let sectionCount = 0;
-            epub.current?.spine.each(() => sectionCount++);
-            requestedCfi.current = previous;
-            setAtStart(reported.atStart);
-            setAtEnd(reported.atEnd);
-            engineCaptureSource.current = 'viewport';
-            save(
-              positionAfterReflow(
-                reported,
-                anchor,
-                chapterData.current,
-                sectionCount,
-                settings.current.fontSize,
-              ),
+          await runEpubNavigation({ kind: 'viewport-reflow' }, async () => {
+            resizeEpubAt(
+              r,
+              area.clientWidth,
+              area.clientHeight,
+              previous || undefined,
             );
-            requestedCfi.current = undefined;
-          }
+            if (previous) await r.display(previous);
+            const reported = await reportLatestLocation(r);
+            if (
+              !cancelled &&
+              rendition.current === r &&
+              layoutReflow.current.finish(revision)
+            ) {
+              let sectionCount = 0;
+              epub.current?.spine.each(() => sectionCount++);
+              requestedCfi.current = previous;
+              setAtStart(reported.atStart);
+              setAtEnd(reported.atEnd);
+              engineCaptureSource.current = 'viewport';
+              save(
+                positionAfterReflow(
+                  reported,
+                  anchor,
+                  chapterData.current,
+                  sectionCount,
+                  settings.current.fontSize,
+                ),
+              );
+              requestedCfi.current = undefined;
+              if (engineNavigation.current) await writeQueue.current;
+            }
+          });
         } catch {
           if (!cancelled && layoutReflow.current.finish(revision)) {
             setSaveState('Page fitting failed — place kept');
@@ -993,7 +1071,7 @@ export default function Reader({
             );
           }
         } finally {
-          navigationPending.current = false;
+          setLegacyNavigationPending(false);
           if (!cancelled && rendition.current === r) setTurning(false);
         }
       };
@@ -1006,7 +1084,13 @@ export default function Reader({
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [book.format, save]);
+  }, [
+    book.format,
+    navigationIsPending,
+    runEpubNavigation,
+    save,
+    setLegacyNavigationPending,
+  ]);
 
   async function turn(direction: -1 | 1) {
     if (
@@ -1016,7 +1100,7 @@ export default function Reader({
       panel ||
       picture ||
       pageTurnsLockedRef.current ||
-      navigationPending.current ||
+      navigationIsPending() ||
       layoutReflow.current.pending ||
       (direction < 0 && atStart) ||
       (direction > 0 && atEnd)
@@ -1029,20 +1113,22 @@ export default function Reader({
     engineCaptureSource.current = 'page-turn';
     if (book.format === 'epub') {
       setTurning(true);
-      navigationPending.current = true;
+      setLegacyNavigationPending(true);
       try {
-        await (direction > 0
-          ? rendition.current?.next()
-          : rendition.current?.prev());
-        if (rendition.current) {
-          const location = await reportLatestLocation(rendition.current);
-          persistEpubLocation(location);
-          await writeQueue.current;
-        }
+        await runEpubNavigation({ kind: 'turn', direction }, async () => {
+          await (direction > 0
+            ? rendition.current?.next()
+            : rendition.current?.prev());
+          if (rendition.current) {
+            const location = await reportLatestLocation(rendition.current);
+            persistEpubLocation(location);
+            await writeQueue.current;
+          }
+        });
       } catch {
         setError('Could not turn this page. Try the chapter list.');
       } finally {
-        navigationPending.current = false;
+        setLegacyNavigationPending(false);
         setTurning(false);
       }
     } else setPage((p) => Math.max(1, Math.min(total, p + direction)));
@@ -1093,7 +1179,7 @@ export default function Reader({
       loading ||
       turning ||
       closing ||
-      navigationPending.current ||
+      navigationIsPending() ||
       layoutReflow.current.pending
     )
       return;
@@ -1192,7 +1278,7 @@ export default function Reader({
     }
   }
   async function goTo(location: string) {
-    if (navigationPending.current || layoutReflow.current.pending || closing)
+    if (navigationIsPending() || layoutReflow.current.pending || closing)
       return;
     if (document.visibilityState === 'visible' && !completed.current)
       readingClock.current.activity(Date.now());
@@ -1201,14 +1287,17 @@ export default function Reader({
     try {
       if (book.format === 'epub' && rendition.current) {
         setTurning(true);
-        navigationPending.current = true;
+        setLegacyNavigationPending(true);
         requestedCfi.current = location.startsWith('epubcfi(')
           ? location
           : undefined;
-        await rendition.current.display(location);
-        const reported = await reportLatestLocation(rendition.current);
-        persistEpubLocation(reported, requestedCfi.current);
-        await writeQueue.current;
+        await runEpubNavigation({ kind: 'jump' }, async () => {
+          if (!rendition.current) return;
+          await rendition.current.display(location);
+          const reported = await reportLatestLocation(rendition.current);
+          persistEpubLocation(reported, requestedCfi.current);
+          await writeQueue.current;
+        });
         const details = current.current.epubPage;
         if (
           details &&
@@ -1230,7 +1319,7 @@ export default function Reader({
     } catch {
       setError('This saved location could not be opened.');
     } finally {
-      navigationPending.current = false;
+      setLegacyNavigationPending(false);
       setTurning(false);
     }
   }
@@ -1256,7 +1345,7 @@ export default function Reader({
     if (
       closing ||
       turning ||
-      navigationPending.current ||
+      navigationIsPending() ||
       layoutReflow.current.pending
     )
       return;
@@ -1264,13 +1353,17 @@ export default function Reader({
     flushReadingTime(true);
     try {
       if (rendition.current && epubReady.current && !loading) {
-        navigationPending.current = true;
+        setLegacyNavigationPending(true);
         requestedCfi.current = undefined;
         engineCaptureSource.current = 'close';
-        persistEpubLocation(
-          await reportLatestLocation(rendition.current),
-          current.current.location,
-        );
+        await runEpubNavigation({ kind: 'close' }, async () => {
+          if (!rendition.current) return;
+          persistEpubLocation(
+            await reportLatestLocation(rendition.current),
+            current.current.location,
+          );
+          await writeQueue.current;
+        });
       } else if (book.format !== 'epub' && !loading && total) {
         const finalPage = Math.max(1, Math.min(total, page));
         save(
@@ -1289,7 +1382,7 @@ export default function Reader({
         'Your current place has not finished saving. Please try returning to the library again.',
       );
     } finally {
-      navigationPending.current = false;
+      setLegacyNavigationPending(false);
       setClosing(false);
     }
   }
