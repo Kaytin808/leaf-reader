@@ -2,7 +2,14 @@
 /* oxlint-disable react/react-compiler -- IndexedDB is an external async store; this app does not enable the React compiler. */
 import Link from 'next/link';
 import Image from 'next/image';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   BookOpen,
   Plus,
@@ -21,6 +28,8 @@ import {
   Pencil,
   ImagePlus,
   Clock3,
+  FileDown,
+  FlaskConical,
 } from 'lucide-react';
 import {
   Dialog,
@@ -73,6 +82,13 @@ import {
   chapterIndex,
   repairChapterLabel,
 } from '@/lib/chapters';
+import {
+  isEngineBetaBuild,
+  isEngineV2Enabled,
+  setEngineV2Enabled,
+} from '@/lib/reader-engine/feature-flags';
+
+const EngineBetaReader = lazy(() => import('@/components/reader-engine-beta'));
 
 export default function Home() {
   const [books, setBooks] = useState<LibraryBook[]>([]);
@@ -95,12 +111,16 @@ export default function Home() {
   const [editError, setEditError] = useState('');
   const [coverSearching, setCoverSearching] = useState(false);
   const [coverMessage, setCoverMessage] = useState('');
+  const [engineEnabled, setEngineEnabled] = useState(false);
   const [draftCoverSource, setDraftCoverSource] =
     useState<LibraryBook['coverSource']>();
   const coverSearchRequest = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const coverInput = useRef<HTMLInputElement>(null);
   const active = books.find((b) => b.id === activeId);
+  useEffect(() => {
+    if (isEngineBetaBuild) setEngineEnabled(isEngineV2Enabled());
+  }, []);
   const recent = [...books]
     .filter((b) => b.lastRead > 0 && !isBookFinished(b))
     .sort((a, b) => b.lastRead - a.lastRead)[0];
@@ -446,17 +466,62 @@ export default function Home() {
     }
     return () => lifecycle.abort();
   }, []);
+  async function exportEngineDiagnostics() {
+    try {
+      const [{ diagnosticsBlob }, { shareDataFile }] = await Promise.all([
+        import('@/lib/reader-engine/diagnostics'),
+        import('@/lib/native'),
+      ]);
+      const blob = diagnosticsBlob();
+      if (!blob) {
+        setNotice(
+          'Open and close an EPUB with Engine V2 before exporting its log.',
+        );
+        return;
+      }
+      const filename = `kaylas-library-engine-v2-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, '-')}.json`;
+      if (await shareDataFile(blob, filename)) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (cause) {
+      setNotice(errorMessage(cause));
+    }
+  }
   if (active)
     return (
-      <Reader
-        key={active.id}
-        book={active}
-        onUpdate={onUpdate}
-        onClose={() => {
-          setActiveId(null);
-          void refresh().catch((e) => setNotice(errorMessage(e)));
-        }}
-      />
+      <Suspense
+        fallback={
+          <main className="engine-beta-loading">Loading Engine V2…</main>
+        }
+      >
+        {isEngineBetaBuild && engineEnabled ? (
+          <EngineBetaReader
+            key={active.id}
+            book={active}
+            onUpdate={onUpdate}
+            onClose={() => {
+              setActiveId(null);
+              void refresh().catch((e) => setNotice(errorMessage(e)));
+            }}
+          />
+        ) : (
+          <Reader
+            key={active.id}
+            book={active}
+            onUpdate={onUpdate}
+            onClose={() => {
+              setActiveId(null);
+              void refresh().catch((e) => setNotice(errorMessage(e)));
+            }}
+          />
+        )}
+      </Suspense>
     );
   const filtered = books
     .filter(
@@ -475,8 +540,37 @@ export default function Home() {
       <header className="masthead">
         <Link className="wordmark" href="/">
           <BookOpen size={27} /> Kayla’s Library
+          {isEngineBetaBuild && <small>ENGINE BETA</small>}
         </Link>
         <div className="masthead-actions">
+          {isEngineBetaBuild && (
+            <>
+              {engineEnabled && (
+                <button
+                  className="engine-beta-action"
+                  onClick={() => void exportEngineDiagnostics()}
+                >
+                  <FileDown size={16} /> Export log
+                </button>
+              )}
+              <button
+                className={`engine-beta-action ${engineEnabled ? 'enabled' : ''}`}
+                aria-pressed={engineEnabled}
+                onClick={() => {
+                  const enabled = setEngineV2Enabled(!engineEnabled);
+                  setEngineEnabled(enabled);
+                  setNotice(
+                    enabled
+                      ? 'Engine V2 position model enabled.'
+                      : 'Legacy engine restored. Engine V2 storage will not be opened.',
+                  );
+                }}
+              >
+                <FlaskConical size={16} />
+                {engineEnabled ? 'Engine V2 on' : 'Legacy engine'}
+              </button>
+            </>
+          )}
           <span className="local-badge">
             <span /> Your personal reading space
           </span>

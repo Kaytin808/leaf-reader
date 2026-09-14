@@ -40,3 +40,7 @@ export async function shareBookFile(
   }
   return true;
 }
+
+export async function shareDataFile(file: Blob, filename: string) {
+  return shareBookFile(file, filename);
+}

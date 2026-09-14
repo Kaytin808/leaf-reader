@@ -105,6 +105,42 @@ svg {
   font-weight: bold;
   letter-spacing: -2px;
 }
+.wordmark small {
+  border: 1px solid #7c5ce5;
+  border-radius: 999px;
+  color: #6941c6;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 4px 7px;
+}
+.engine-beta-action {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 11px;
+}
+.engine-beta-action.enabled {
+  background: #6941c6;
+  border-color: #6941c6;
+  color: white;
+}
+.engine-beta-loading {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 28px;
+  text-align: center;
+}
 .brand-dot {
   color: #e28143;
   margin-left: -9px;
@@ -297,6 +333,15 @@ footer span {
   .wordmark {
     font-size: 22px;
     letter-spacing: -1px;
+  }
+  .wordmark small {
+    display: none;
+  }
+  .engine-beta-action {
+    font-size: 0;
+    justify-content: center;
+    min-width: 36px;
+    padding: 8px;
   }
   .local-badge {
     font-size: 0;

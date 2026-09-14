@@ -59,7 +59,9 @@ interface LibraryDB extends DBSchema {
   files: { key: string; value: Blob };
 }
 const db = () =>
-  openDB<LibraryDB>('leaf-library', 1, {
+  // This branch builds the separately installed Engine Beta app. Its legacy
+  // fallback deliberately uses a different database from the stable app too.
+  openDB<LibraryDB>('leaf-library-engine-beta', 1, {
     upgrade(database) {
       database.createObjectStore('books', { keyPath: 'id' });
       database.createObjectStore('files');

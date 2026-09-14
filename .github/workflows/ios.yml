@@ -3,6 +3,8 @@ name: Build Kayla's Library IPA
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     paths:
       - 'app/**'
       - 'components/**'

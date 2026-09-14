@@ -75,6 +75,10 @@ import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
 import { version } from '@/package.json';
 import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
 import { createHighlight } from '@/lib/highlights';
+import type {
+  EnginePositionObservation,
+  EnginePositionController,
+} from '@/lib/reader-engine/controller';
 import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
@@ -93,6 +97,7 @@ type Props = {
   book: LibraryBook;
   onClose: () => void;
   onUpdate: (book: LibraryBook) => void;
+  enginePositionController?: Pick<EnginePositionController, 'observe'>;
 };
 const palette = {
   paper: { bg: '#ffffff', fg: '#243349' },
@@ -103,13 +108,24 @@ const highlightStyles = {
   fill: '#f6c453',
   'fill-opacity': '0.42',
 };
-export default function Reader({ book, onClose, onUpdate }: Props) {
+export default function Reader({
+  book,
+  onClose,
+  onUpdate,
+  enginePositionController,
+}: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
   const callback = useRef(onUpdate);
   useEffect(() => {
     callback.current = onUpdate;
   }, [onUpdate]);
+  const engineObserver = useRef(enginePositionController);
+  const engineCaptureSource =
+    useRef<EnginePositionObservation['source']>('open');
+  useEffect(() => {
+    engineObserver.current = enginePositionController;
+  }, [enginePositionController]);
   const mount = useRef<HTMLElement>(null);
   const readerRoot = useRef<HTMLDivElement>(null);
   const readerHeader = useRef<HTMLElement>(null);
@@ -305,6 +321,30 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     current.current = normalized;
     setPosition(normalized);
     setSaveState('Saving…');
+    const liveEpub = epub.current;
+    const area = mount.current;
+    if (
+      engineObserver.current &&
+      liveEpub &&
+      area &&
+      normalized.location.startsWith('epubcfi(')
+    ) {
+      engineObserver.current.observe({
+        position: normalized,
+        epub: liveEpub,
+        source: engineCaptureSource.current,
+        layoutSignature: {
+          viewportWidth: area.clientWidth,
+          viewportHeight: area.clientHeight,
+          fontSize: settings.current.fontSize,
+          fontFamily: settings.current.font,
+          lineHeight: LINE_HEIGHTS[settings.current.spacing],
+          margin: settings.current.margin,
+          flow: 'paginated',
+        },
+      });
+      engineCaptureSource.current = 'page-turn';
+    }
     writeQueue.current = writeQueue.current
       .catch(() => {})
       .then(async () => {
@@ -801,6 +841,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setTurning(true);
       const previous = current.current.location;
       try {
+        engineCaptureSource.current = 'font-change';
         r.themes.override('color', palette[theme].fg, true);
         r.themes.override('background', palette[theme].bg, true);
         if (reflowableEpub.current) {
@@ -932,6 +973,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             requestedCfi.current = previous;
             setAtStart(reported.atStart);
             setAtEnd(reported.atEnd);
+            engineCaptureSource.current = 'viewport';
             save(
               positionAfterReflow(
                 reported,
@@ -984,6 +1026,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       readingClock.current.activity(Date.now());
     setError('');
     requestedCfi.current = undefined;
+    engineCaptureSource.current = 'page-turn';
     if (book.format === 'epub') {
       setTurning(true);
       navigationPending.current = true;
@@ -1223,6 +1266,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       if (rendition.current && epubReady.current && !loading) {
         navigationPending.current = true;
         requestedCfi.current = undefined;
+        engineCaptureSource.current = 'close';
         persistEpubLocation(
           await reportLatestLocation(rendition.current),
           current.current.location,
