@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+app="$PWD/build/FocusScrollPrototype.xcarchive/Products/Applications/App.app"
+test -d "$app"
+test -f "$app/public/index.html"
+test -d "$app/public/pdf-assets/cmaps"
+executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Info.plist")
+lipo -archs "$app/$executable" | grep -qw arm64
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = 'com.kaytin808.leafreader.focusscrollprototype'
+test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleDisplayName' "$app/Info.plist")" = 'Kayla’s Focus Scroll'
+
+staging=$(mktemp -d "$PWD/build/focus-scroll-prototype-ipa.XXXXXX")
+ipa="$PWD/build/Kaylas-Focus-Scroll-Prototype-unsigned.ipa"
+mkdir "$staging/Payload"
+ditto "$app" "$staging/Payload/App.app"
+(cd "$staging" && ditto -c -k --keepParent Payload "$ipa")
+unzip -tq "$ipa"
+(cd build && shasum -a 256 Kaylas-Focus-Scroll-Prototype-unsigned.ipa > Kaylas-Focus-Scroll-Prototype-unsigned.ipa.sha256)
+echo 'Created isolated Focus Scroll throwaway prototype IPA.'

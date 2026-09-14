@@ -474,11 +474,11 @@ export default function Home() {
     <main className="library-shell">
       <header className="masthead">
         <Link className="wordmark" href="/">
-          <BookOpen size={27} /> Kayla’s Library
+          <BookOpen size={27} /> Kayla’s Focus Scroll
         </Link>
         <div className="masthead-actions">
           <span className="local-badge">
-            <span /> Your personal reading space
+            <span /> THROWAWAY SCROLL PROTOTYPE
           </span>
           <ThemeButtons />
         </div>

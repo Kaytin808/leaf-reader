@@ -76,6 +76,10 @@ import { version } from '@/package.json';
 import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
 import { createHighlight } from '@/lib/highlights';
 import {
+  FOCUS_SCROLL_PROTOTYPE,
+  switchFocusScrollPrototype,
+} from '@/lib/focus-scroll-prototype';
+import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
   LETTER_SPACING,
@@ -171,11 +175,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   );
   const pageTurnsLockedRef = useRef(pageTurnsLocked);
   pageTurnsLockedRef.current = pageTurnsLocked;
+  const navigationPending = useRef(false);
+  const focusScrollMode = useRef(false);
+  const focusScrollTransition = useRef(false);
+  const [focusScrollTransitioning, setFocusScrollTransitioning] =
+    useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
-  const setReaderControls = useCallback((visible: boolean) => {
-    if (controlsVisibleRef.current === visible || navigationPending.current)
-      return;
+  const applyControlsVisibility = useCallback((visible: boolean) => {
     controlsVisibleRef.current = visible;
     setControlsVisible(visible);
     requestAnimationFrame(() =>
@@ -184,6 +191,69 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }),
     );
   }, []);
+  const setReaderControls = useCallback(
+    (visible: boolean) => {
+      if (
+        controlsVisibleRef.current === visible ||
+        navigationPending.current ||
+        focusScrollTransition.current
+      )
+        return;
+
+      const reader = rendition.current;
+      const useScrollPrototype =
+        FOCUS_SCROLL_PROTOTYPE &&
+        initial.current.format === 'epub' &&
+        reflowableEpub.current &&
+        epubReady.current &&
+        reader &&
+        mount.current;
+      if (!useScrollPrototype) {
+        applyControlsVisibility(visible);
+        return;
+      }
+
+      const previousFocus = focusScrollMode.current;
+      focusScrollTransition.current = true;
+      setFocusScrollTransitioning(true);
+      setError('');
+      void switchFocusScrollPrototype(reader, {
+        focus: !visible,
+        applyContainerLayout: async () => {
+          focusScrollMode.current = !visible;
+          applyControlsVisibility(visible);
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => resolve()),
+            ),
+          );
+        },
+        viewport: () => ({
+          width: mount.current?.clientWidth ?? 0,
+          height: mount.current?.clientHeight ?? 0,
+        }),
+      })
+        .then((result) => {
+          console.info(
+            '[focus-scroll-prototype]',
+            JSON.stringify(result),
+          );
+        })
+        .catch(() => {
+          focusScrollMode.current = previousFocus;
+          applyControlsVisibility(!previousFocus);
+          reader.flow(previousFocus ? 'scrolled-doc' : 'paginated');
+          setError(
+            'The Focus scrolling prototype could not switch layouts. Your normal page is unchanged.',
+          );
+        })
+        .finally(() => {
+          focusScrollTransition.current = false;
+          setFocusScrollTransitioning(false);
+        });
+    },
+    [applyControlsVisibility],
+  );
   const toggleControls = useCallback(
     () => setReaderControls(!controlsVisibleRef.current),
     [setReaderControls],
@@ -242,9 +312,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   );
   const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
   interaction.current.blocked =
-    loading || turning || closing || !!panel || !!picture || !!pendingHighlight;
+    loading ||
+    turning ||
+    closing ||
+    focusScrollTransitioning ||
+    !!panel ||
+    !!picture ||
+    !!pendingHighlight;
   const requestedCfi = useRef<string | undefined>(undefined);
-  const navigationPending = useRef(false);
   const previousAppTheme = useRef(appTheme.theme);
   const storedReaderTheme = useRef(false);
   useEffect(() => {
@@ -511,7 +586,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             renderedContents.add(contents);
             const disposeTaps = bindReaderTaps(doc, {
               enabled: () => !interaction.current.blocked,
-              canTurn: () => !pageTurnsLockedRef.current,
+              canTurn: () =>
+                !pageTurnsLockedRef.current && !focusScrollMode.current,
               bounds: () => {
                 // A paginated EPUB iframe can be wider than the visible page.
                 const frame =
@@ -614,6 +690,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             if (
               cancelled ||
               !epubReady.current ||
+              focusScrollTransition.current ||
               navigationPending.current ||
               layoutReflow.current.pending
             )
@@ -870,7 +947,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     const area = mount.current;
     return bindReaderTaps(area, {
       enabled: () => !interaction.current.blocked,
-      canTurn: () => !pageTurnsLockedRef.current,
+      canTurn: () =>
+        !pageTurnsLockedRef.current && !focusScrollMode.current,
       bounds: () => area.getBoundingClientRect(),
       turn: (direction) => void turnRef.current(direction),
       center: toggleControls,
@@ -882,7 +960,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     return bindNativeReaderTaps(mount.current, {
       enabled: () => !interaction.current.blocked,
       canTurn: () =>
-        !pageTurnsLockedRef.current && (book.format !== 'pdf' || zoom <= 1),
+        !pageTurnsLockedRef.current &&
+        !focusScrollMode.current &&
+        (book.format !== 'pdf' || zoom <= 1),
       turn: (direction) => void turnRef.current(direction),
       center: toggleControls,
       image: (image) => setPicture(image),
@@ -894,6 +974,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
+      if (focusScrollMode.current || focusScrollTransition.current) return;
       if (!epubReady.current) return;
       layoutReflow.current.begin(current.current);
       setSaveState('Fitting page…');
@@ -974,6 +1055,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       panel ||
       picture ||
       pageTurnsLockedRef.current ||
+      focusScrollMode.current ||
       navigationPending.current ||
       layoutReflow.current.pending ||
       (direction < 0 && atStart) ||
@@ -1019,6 +1101,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         panel ||
         picture ||
         pageTurnsLockedRef.current ||
+        focusScrollMode.current ||
         (zoom > 1 &&
           event.target instanceof Element &&
           event.target.closest('.zoom-viewport')) ||
@@ -1214,6 +1297,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       closing ||
       turning ||
       navigationPending.current ||
+      focusScrollTransition.current ||
       layoutReflow.current.pending
     )
       return;
@@ -1253,12 +1337,21 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   return (
     <div
       ref={readerRoot}
-      className={`reader reader-${theme} ${controlsVisible ? '' : 'reader-focus'}`}
+      className={`reader reader-${theme} ${
+        controlsVisible
+          ? ''
+          : `reader-focus ${
+              book.format === 'epub' && reflowableEpub.current
+                ? 'reader-focus-scroll-prototype'
+                : ''
+            }`
+      }`}
       aria-busy={loading}
     >
       <p id="reader-touch-help" className="sr-only">
-        Tap the left or right side to turn pages. Tap the center to show or hide
-        reading controls. Use the left and right arrow keys to turn pages and
+        Tap the left or right side to turn pages in normal mode. Focus Mode is a
+        scrolling prototype: swipe vertically to read and tap the center to show
+        controls. Use the left and right arrow keys to turn normal pages and
         Escape to show hidden controls.
       </p>
       <output className="sr-only" aria-live="polite" aria-atomic="true">
@@ -1357,6 +1450,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         role="toolbar"
         aria-label="Focus reading tools"
       >
+        {book.format === 'epub' && reflowableEpub.current && (
+          <span className="reader-focus-prototype-badge">SCROLL TEST</span>
+        )}
         <button
           className={`reader-focus-lock ${pageTurnsLocked ? 'is-marked' : ''}`}
           aria-label={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}

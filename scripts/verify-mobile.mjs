@@ -25,8 +25,8 @@ for (const [, url] of html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)) {
     'Missing app asset: ' + url,
   );
 }
-assert.equal(config.appId, 'com.kaytin808.leafreader');
-assert.equal(config.appName, 'Kayla’s Library');
+assert.equal(config.appId, 'com.kaytin808.leafreader.focusscrollprototype');
+assert.equal(config.appName, 'Kayla’s Focus Scroll');
 assert.equal(config.webDir, 'www');
 const info = await readFile(
   new URL('../ios/App/App/Info.plist', import.meta.url),
@@ -34,8 +34,8 @@ const info = await readFile(
 );
 assert.match(
   info,
-  /<key>CFBundleDisplayName<\/key>\s*<string>Kayla’s Library<\/string>/,
-  'The iPhone home-screen name must match the reader name',
+  /<key>CFBundleDisplayName<\/key>\s*<string>Kayla’s Focus Scroll<\/string>/,
+  'The iPhone home-screen name must identify the throwaway prototype',
 );
 const scene = await readFile(
   new URL('../ios/App/App/SceneDelegate.swift', import.meta.url),

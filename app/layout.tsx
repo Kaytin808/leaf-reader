@@ -5,7 +5,7 @@ import './appearance.css';
 import { ThemeProvider } from '@/components/theme-provider';
 
 export const metadata: Metadata = {
-  title: 'Kayla’s Library — Your personal library',
+  title: 'Kayla’s Focus Scroll — Throwaway prototype',
   description:
     'Read your EPUB, PDF, and text books. Keep your library, bookmarks, and reading position on your device.',
 };

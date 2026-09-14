@@ -556,6 +556,17 @@ footer span {
   opacity: 0;
   pointer-events: none;
 }
+.reader-focus.reader-focus-scroll-prototype {
+  grid-template-rows: 0 minmax(0, 1fr) 0;
+}
+.reader-focus-scroll-prototype .reader-header,
+.reader-focus-scroll-prototype .reader-bottom {
+  min-height: 0;
+}
+.reader-focus-scroll-prototype .epub-area {
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+}
 .reader-focus-actions {
   position: absolute;
   z-index: 30;
@@ -566,6 +577,18 @@ footer span {
 }
 .reader-focus .reader-focus-actions {
   display: flex;
+}
+.reader-focus-prototype-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
 }
 .reader-show-controls,
 .reader-focus-lock {

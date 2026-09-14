@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.kaytin808.leafreader',
-  appName: 'Kayla’s Library',
+  appId: 'com.kaytin808.leafreader.focusscrollprototype',
+  appName: 'Kayla’s Focus Scroll',
   webDir: 'www',
   backgroundColor: '#fbfcfe',
   loggingBehavior: 'debug',

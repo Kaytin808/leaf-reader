@@ -1,8 +1,10 @@
-name: Build Kayla's Library IPA
+name: Build Kayla's Focus Scroll Prototype IPA
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - prototype/focus-scroll-v0.1.13
     paths:
       - 'app/**'
       - 'components/**'
@@ -22,12 +24,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: leaf-ios-${{ github.ref }}
+  group: focus-scroll-prototype-ios-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   web:
-    name: Test and bundle reader
+    name: Test and bundle throwaway prototype
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -42,15 +44,16 @@ jobs:
       - run: npm run lint
       - run: npm run build:mobile
       - run: npm run verify:mobile
+      - run: node scripts/verify-focus-scroll-prototype.mjs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: leaf-web-${{ github.run_number }}
+          name: focus-scroll-prototype-web-${{ github.run_number }}
           path: www/
           if-no-files-found: error
           retention-days: 7
 
   ios:
-    name: Build unsigned iPhone IPA
+    name: Build unsigned Focus Scroll prototype IPA
     needs: web
     runs-on: macos-15
     timeout-minutes: 35
@@ -65,7 +68,7 @@ jobs:
       - run: npm ci
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: leaf-web-${{ github.run_number }}
+          name: focus-scroll-prototype-web-${{ github.run_number }}
           path: www/
       - run: xcodebuild -version
       - run: npx cap sync ios
@@ -73,7 +76,7 @@ jobs:
         run: |
           plutil -lint ios/App/App/Info.plist ios/App/App/PrivacyInfo.xcprivacy
           xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
-      - name: Archive for iPhone without Apple credentials
+      - name: Archive isolated throwaway prototype
         run: |
           set -euo pipefail
           mkdir -p build
@@ -82,7 +85,7 @@ jobs:
             -scheme App \
             -configuration Release \
             -destination 'generic/platform=iOS' \
-            -archivePath "$PWD/build/Leaf.xcarchive" \
+            -archivePath "$PWD/build/FocusScrollPrototype.xcarchive" \
             -derivedDataPath "$PWD/build/DerivedData" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
@@ -90,22 +93,22 @@ jobs:
             DEVELOPMENT_TEAM='' \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             2>&1 | tee build/xcodebuild.log
-      - name: Package and verify IPA
-        run: bash scripts/package-ipa.sh
+      - name: Package and verify prototype IPA
+        run: bash scripts/package-focus-scroll-prototype-ipa.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Kaylas-Library-unsigned-${{ github.run_number }}
+          name: Kaylas-Focus-Scroll-Prototype-unsigned-${{ github.run_number }}
           path: |
-            build/Kaylas-Library-unsigned.ipa
-            build/Kaylas-Library-unsigned.ipa.sha256
-            docs/INSTALL-IOS.md
+            build/Kaylas-Focus-Scroll-Prototype-unsigned.ipa
+            build/Kaylas-Focus-Scroll-Prototype-unsigned.ipa.sha256
+            docs/FOCUS-SCROLL-PROTOTYPE.md
           if-no-files-found: error
           retention-days: 30
       - name: Keep build log if compilation fails
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Kaylas-Library-build-log-${{ github.run_number }}
+          name: Focus-Scroll-Prototype-build-log-${{ github.run_number }}
           path: build/xcodebuild.log
           if-no-files-found: ignore
           retention-days: 7

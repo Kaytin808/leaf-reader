@@ -25,7 +25,7 @@ function nativeRule(selector: string) {
   return nativeCss.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 }
 
-test('focus hides controls without resizing or repaginating the reading viewport', () => {
+test('throwaway scrolling Focus expands inside safe areas while normal pagination stays unchanged', () => {
   const reader = rule('.reader');
   assert.match(reader, /display:\s*grid/);
   assert.match(reader, /--reader-header-height/);
@@ -46,7 +46,17 @@ test('focus hides controls without resizing or repaginating the reading viewport
   assert.match(epubArea, /margin:\s*0 auto/);
 
   assert.doesNotMatch(reader, /transition:\s*grid-template-rows/);
-  assert.doesNotMatch(rule('.reader-focus'), /grid-template-rows/);
+  assert.match(
+    rule('.reader-focus.reader-focus-scroll-prototype'),
+    /grid-template-rows:\s*0 minmax\(0,\s*1fr\) 0/,
+  );
+  assert.match(
+    rule('.reader-focus-scroll-prototype .epub-area'),
+    /touch-action:\s*pan-y/,
+  );
+  assert.match(readerSource, /FOCUS_SCROLL_PROTOTYPE/);
+  assert.match(readerSource, /switchFocusScrollPrototype/);
+  assert.match(readerSource, /flow:\s*'paginated'/);
 
   for (const selector of [
     '.reader-focus .reader-header',
@@ -78,7 +88,10 @@ test('page-turn lock stays beside Focus and blocks every navigation input', () =
   assert.match(readerSource, /aria-label="Focus reading tools"/);
   assert.match(readerSource, /reader-focus-lock/);
   assert.match(readerSource, /pageTurnsLockedRef\.current/);
-  assert.match(readerSource, /canTurn:\s*\(\) => !pageTurnsLockedRef\.current/);
+  assert.match(
+    readerSource,
+    /canTurn:\s*\(\) =>\s*!pageTurnsLockedRef\.current\s*&&\s*!focusScrollMode\.current/,
+  );
   assert.match(
     readerSource,
     /disabled=\{loading \|\| atEnd \|\| pageTurnsLocked\}/,
