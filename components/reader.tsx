@@ -57,6 +57,7 @@ import {
 import { prepareEpub, splitText } from '@/lib/book-files';
 import {
   CHAPTER_HISTORY_VERSION,
+  chapterReadingStatus,
   chapterIndex,
   positionForEpub,
   repairChapterLabel,
@@ -73,7 +74,13 @@ import {
 import { ImagePage, PdfPage, ZoomControls } from '@/components/zoom-reader';
 import { bindNativeReaderTaps } from '@/lib/native-reader-taps';
 import { version } from '@/package.json';
-import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
+import {
+  addReadingActivity,
+  estimatedTimeRemainingStatus,
+  localDayKey,
+  ReadingClock,
+  readingTimeStatus,
+} from '@/lib/reading-statistics';
 import { createHighlight } from '@/lib/highlights';
 import {
   beginHighlightVisit,
@@ -136,6 +143,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [page, setPage] = useState(
     Math.max(1, Number(book.position.location) || 1),
   );
+  const pageTurnDelta = useRef(0);
   const [total, setTotal] = useState(0);
   const [textPages, setTextPages] = useState<string[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
@@ -323,66 +331,85 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setPendingHighlight(repaired);
     return repaired;
   }, []);
-  const save = useCallback((next: Position, reachedEnd = false) => {
-    // A highlight visit is a temporary preview, not a new reading position.
-    // Keep this guard at the single write entry point as a final safety net for
-    // relocated/resize events that may arrive while the quote is being shown.
-    if (highlightVisitRef.current) return;
-    const now = Date.now();
-    const normalized = {
-      ...next,
-      progress: reachedEnd ? 100 : Math.min(next.progress, 99),
-    };
-    const elapsed = readingClock.current.capture(now);
-    const completing = reachedEnd && !completed.current;
-    if (completing) {
-      readingClock.current.pause(now);
-      completed.current = true;
-      setIsCompleted(true);
-      finishedReadingTime.current = elapsed;
-      setReadingTime(elapsed);
-    }
-    persistedReadingTime.current = Math.max(
-      persistedReadingTime.current,
-      elapsed,
-    );
-    current.current = normalized;
-    setPosition(normalized);
-    setSaveState('Saving…');
-    writeQueue.current = writeQueue.current
-      .catch(() => {})
-      .then(async () => {
-        const updated = await updateBook(initial.current.id, (latest) => {
-          const wasFinished = isBookFinished(latest);
-          const totalReadingTime = Math.max(latest.readingTimeMs ?? 0, elapsed);
-          return {
-            position: normalized,
-            lastRead: now,
-            readingTimeMs: totalReadingTime,
-            ...((reachedEnd || wasFinished) && {
-              completedAt: latest.completedAt ?? now,
-            }),
-            ...(completing &&
-              !wasFinished && {
-                finishedReadingTimeMs: totalReadingTime,
+  const save = useCallback(
+    (next: Position, reachedEnd = false, pagesRead = 0) => {
+      // A highlight visit is a temporary preview, not a new reading position.
+      // Keep this guard at the single write entry point as a final safety net for
+      // relocated/resize events that may arrive while the quote is being shown.
+      if (highlightVisitRef.current) return;
+      const now = Date.now();
+      const normalized = {
+        ...next,
+        progress: reachedEnd ? 100 : Math.min(next.progress, 99),
+      };
+      const elapsed = readingClock.current.capture(now);
+      const completing = reachedEnd && !completed.current;
+      if (completing) {
+        readingClock.current.pause(now);
+        completed.current = true;
+        setIsCompleted(true);
+        finishedReadingTime.current = elapsed;
+        setReadingTime(elapsed);
+      }
+      persistedReadingTime.current = Math.max(
+        persistedReadingTime.current,
+        elapsed,
+      );
+      current.current = normalized;
+      setPosition(normalized);
+      setSaveState('Saving…');
+      writeQueue.current = writeQueue.current
+        .catch(() => {})
+        .then(async () => {
+          const updated = await updateBook(initial.current.id, (latest) => {
+            const wasFinished = isBookFinished(latest);
+            const totalReadingTime = Math.max(
+              latest.readingTimeMs ?? 0,
+              elapsed,
+            );
+            const timeAdded = Math.max(
+              0,
+              totalReadingTime - (latest.readingTimeMs ?? 0),
+            );
+            return {
+              position: normalized,
+              lastRead: now,
+              readingTimeMs: totalReadingTime,
+              readingActivity:
+                timeAdded || pagesRead
+                  ? addReadingActivity(
+                      latest.readingActivity,
+                      localDayKey(now),
+                      timeAdded,
+                      pagesRead,
+                    )
+                  : latest.readingActivity,
+              ...((reachedEnd || wasFinished) && {
+                completedAt: latest.completedAt ?? now,
               }),
-            ...(initial.current.format === 'epub'
-              ? { chapterHistoryVersion: CHAPTER_HISTORY_VERSION }
-              : {}),
-          };
+              ...(completing &&
+                !wasFinished && {
+                  finishedReadingTimeMs: totalReadingTime,
+                }),
+              ...(initial.current.format === 'epub'
+                ? { chapterHistoryVersion: CHAPTER_HISTORY_VERSION }
+                : {}),
+            };
+          });
+          completed.current = isBookFinished(updated);
+          setIsCompleted(completed.current);
+          finishedReadingTime.current = updated.finishedReadingTimeMs;
+          callback.current(updated);
+          if (current.current === normalized && !layoutReflow.current.pending)
+            setSaveState('Place saved');
+        })
+        .catch(() => {
+          if (current.current === normalized && !layoutReflow.current.pending)
+            setSaveState('Could not save — check storage');
         });
-        completed.current = isBookFinished(updated);
-        setIsCompleted(completed.current);
-        finishedReadingTime.current = updated.finishedReadingTimeMs;
-        callback.current(updated);
-        if (current.current === normalized && !layoutReflow.current.pending)
-          setSaveState('Place saved');
-      })
-      .catch(() => {
-        if (current.current === normalized && !layoutReflow.current.pending)
-          setSaveState('Could not save — check storage');
-      });
-  }, []);
+    },
+    [],
+  );
 
   const flushReadingTime = useCallback((pause = false) => {
     const now = Date.now();
@@ -395,9 +422,23 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     writeQueue.current = writeQueue.current
       .catch(() => {})
       .then(async () => {
-        const updated = await updateBook(initial.current.id, (latest) => ({
-          readingTimeMs: Math.max(latest.readingTimeMs ?? 0, elapsed),
-        }));
+        const updated = await updateBook(initial.current.id, (latest) => {
+          const totalReadingTime = Math.max(latest.readingTimeMs ?? 0, elapsed);
+          const timeAdded = Math.max(
+            0,
+            totalReadingTime - (latest.readingTimeMs ?? 0),
+          );
+          return {
+            readingTimeMs: totalReadingTime,
+            readingActivity: timeAdded
+              ? addReadingActivity(
+                  latest.readingActivity,
+                  localDayKey(now),
+                  timeAdded,
+                )
+              : latest.readingActivity,
+          };
+        });
         callback.current(updated);
       });
   }, []);
@@ -907,6 +948,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
+    const pagesRead = pageTurnDelta.current;
+    pageTurnDelta.current = 0;
     save(
       {
         location: String(page),
@@ -914,6 +957,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         progress: Math.round((page / total) * 100),
       },
       page >= total,
+      pagesRead,
     );
     setAtStart(page <= 1);
     setAtEnd(page >= total);
@@ -1053,7 +1097,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
           if (!recordHighlightVisitLocation(location)) {
-            persistEpubLocation(location);
+            persistEpubLocation(location, undefined, direction > 0 ? 1 : 0);
             await writeQueue.current;
           }
         }
@@ -1063,7 +1107,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = false;
         setTurning(false);
       }
-    } else setPage((p) => Math.max(1, Math.min(total, p + direction)));
+    } else {
+      if (direction > 0) pageTurnDelta.current++;
+      setPage((p) => Math.max(1, Math.min(total, p + direction)));
+    }
   }
   const turnRef = useRef(turn);
   useEffect(() => {
@@ -1324,7 +1371,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setTurning(false);
     }
   }
-  function persistEpubLocation(location: Location, target?: string) {
+  function persistEpubLocation(
+    location: Location,
+    target?: string,
+    pagesRead = 0,
+  ) {
     let sectionCount = 0;
     epub.current?.spine.each(() => sectionCount++);
     setAtStart(location.atStart);
@@ -1338,6 +1389,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         settings.current.fontSize,
       ),
       location.atEnd,
+      pagesRead,
     );
     if (!target || requestedCfi.current === target)
       requestedCfi.current = undefined;
@@ -1384,6 +1436,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setClosing(false);
     }
   }
+
+  const chapterStatus = chapterReadingStatus(chapters, position);
+  const remainingTime = estimatedTimeRemainingStatus(
+    position.progress,
+    readingTime,
+  );
 
   return (
     <div
@@ -1686,6 +1744,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   isCompleted ? finishedReadingTime.current : readingTime,
                 )}
               </span>
+              {remainingTime && <span> · {remainingTime}</span>}
               {pageTurnsLocked && (
                 <span className="reader-lock-status">
                   · <LockKeyhole size={12} /> Page turns locked
@@ -1702,6 +1761,36 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             <ArrowRight size={21} />
           </button>
         </div>
+        {book.format === 'epub' && chapterStatus.total > 0 && (
+          <div className="reader-chapter-navigation">
+            <button
+              className="text-button"
+              aria-label="Previous chapter"
+              disabled={!chapterStatus.previous || loading}
+              onClick={() =>
+                chapterStatus.previous && void goTo(chapterStatus.previous.cfi)
+              }
+            >
+              <ArrowLeft size={14} /> Previous chapter
+            </button>
+            <span>
+              Chapter {chapterStatus.index} of {chapterStatus.total}
+              {chapterStatus.progress !== undefined
+                ? ` · ${chapterStatus.progress}% of chapter`
+                : ''}
+            </span>
+            <button
+              className="text-button"
+              aria-label="Next chapter"
+              disabled={!chapterStatus.next || loading}
+              onClick={() =>
+                chapterStatus.next && void goTo(chapterStatus.next.cfi)
+              }
+            >
+              Next chapter <ArrowRight size={14} />
+            </button>
+          </div>
+        )}
         <button
           className="saved-places-button"
           onClick={() => setPanel('bookmarks')}
@@ -1910,6 +1999,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           )}
           {panel === 'chapters' && (
             <div className="chapter-list">
+              {chapterStatus.current && (
+                <p className="chapter-current-status">
+                  <strong>{chapterStatus.current.label}</strong>
+                  <span>
+                    Chapter {chapterStatus.index} of {chapterStatus.total}
+                    {chapterStatus.progress !== undefined
+                      ? ` · ${chapterStatus.progress}% complete`
+                      : ''}
+                  </span>
+                </p>
+              )}
               {chapters.length ? (
                 chapters.map((chapter, i) => (
                   <button

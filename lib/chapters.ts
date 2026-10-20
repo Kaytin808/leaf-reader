@@ -4,7 +4,7 @@ import type Section from 'epubjs/types/section';
 import type { Location } from 'epubjs/types/rendition';
 import type { Position } from './library';
 
-export const CHAPTER_HISTORY_VERSION = 4;
+export const CHAPTER_HISTORY_VERSION = 5;
 export type Chapter = {
   label: string;
   href: string;
@@ -121,58 +121,119 @@ export async function chapterIndex(book: Book): Promise<Chapter[]> {
   }
   await visit(book.navigation.toc, 0);
 
-  // Some personal EPUBs omit their navigation document entirely. In that
-  // case, build the chapter list from semantic headings in the spine. When a
-  // publisher supplied navigation, keep it authoritative so ordinary headings
-  // in continuation files are not mistaken for new chapters.
-  if (!result.length) {
-    for (const section of sections) {
-      try {
-        await Promise.resolve(section.load(book.load.bind(book)));
-        const doc = section.document;
-        const body = doc.body || doc.documentElement;
-        const bodyStart = textStart(section, body);
-        const inferred = inferredChapterHeading(doc).map((heading) => ({
-          heading,
-          label: heading.textContent?.replace(/\s+/g, ' ').trim() || '',
-        }));
-        if (!inferred.length) {
-          const title = doc.title.replace(/\s+/g, ' ').trim();
-          if (
-            title &&
-            (namedHeading.test(title) || numberedHeading.test(title))
-          )
-            inferred.push({ heading: body, label: title });
-        }
-        for (const { heading, label } of inferred) {
-          if (!label) continue;
-          const cfi = textStart(section, heading);
-          const duplicate = result.some(
-            (chapter) =>
-              chapter.spineIndex === section.index &&
-              (compare.compare(chapter.cfi, cfi) === 0 ||
-                normalize(chapter.label) === normalize(label)),
-          );
-          if (duplicate) continue;
-          const id = heading.id ? `#${encodeURIComponent(heading.id)}` : '';
-          result.push({
-            label,
-            href: section.href + id,
-            depth: 0,
-            spineIndex: section.index,
-            cfi,
-            startsSection: cfi === bodyStart,
-          });
-        }
-      } catch {
-        /* A broken spine item must not hide chapters from the rest of the book. */
+  // Fill gaps in incomplete or missing navigation documents from semantic
+  // headings. Converted EPUBs frequently ship a partial table of contents, so
+  // limiting inference to books with no navigation hides otherwise valid
+  // chapters.
+  for (const section of sections) {
+    try {
+      await Promise.resolve(section.load(book.load.bind(book)));
+      const doc = section.document;
+      const body = doc.body || doc.documentElement;
+      const bodyStart = textStart(section, body);
+      const inferred = inferredChapterHeading(doc).map((heading) => ({
+        heading,
+        label: heading.textContent?.replace(/\s+/g, ' ').trim() || '',
+      }));
+      if (!inferred.length) {
+        const title = doc.title.replace(/\s+/g, ' ').trim();
+        if (title && (namedHeading.test(title) || numberedHeading.test(title)))
+          inferred.push({ heading: body, label: title });
       }
+      for (const { heading, label } of inferred) {
+        if (!label) continue;
+        const cfi = textStart(section, heading);
+        const duplicate = result.some(
+          (chapter) =>
+            compare.compare(chapter.cfi, cfi) === 0 ||
+            normalize(chapter.label) === normalize(label),
+        );
+        if (duplicate) continue;
+        const id = heading.id ? `#${encodeURIComponent(heading.id)}` : '';
+        result.push({
+          label,
+          href: section.href + id,
+          depth: 0,
+          spineIndex: section.index,
+          cfi,
+          startsSection: cfi === bodyStart,
+        });
+      }
+    } catch {
+      /* A broken spine item must not hide chapters from the rest of the book. */
     }
   }
 
   return result.sort(
     (a, b) => compare.compare(a.cfi, b.cfi) || a.depth - b.depth,
   );
+}
+
+export type ChapterReadingStatus = {
+  index: number;
+  total: number;
+  progress?: number;
+  previous?: Chapter;
+  current?: Chapter;
+  next?: Chapter;
+};
+
+export function chapterReadingStatus(
+  chapters: Chapter[],
+  position: Position,
+): ChapterReadingStatus {
+  if (!chapters.length) return { index: 0, total: 0 };
+  let index = position.chapterCfi
+    ? chapters.findIndex((chapter) => chapter.cfi === position.chapterCfi)
+    : -1;
+  if (index < 0 && position.location.startsWith('epubcfi(')) {
+    const cfi = new EpubCFI(position.location);
+    const current = chapterAt(chapters, position.location, cfi.spinePos);
+    index = current ? chapters.indexOf(current) : -1;
+  }
+  index = Math.max(0, index);
+  const current = chapters[index];
+  const next = chapters[index + 1];
+  const page = position.epubPage;
+  let progress: number | undefined;
+  if (page && current) {
+    const startSection = current.spineIndex;
+    const endSection = next?.spineIndex ?? page.sections;
+    if (endSection > startSection) {
+      const sectionOffset = Math.max(0, page.section - 1 - startSection);
+      const pageOffset = (Math.max(1, page.page) - 1) / Math.max(1, page.total);
+      progress = Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            ((sectionOffset + pageOffset) / (endSection - startSection)) * 100,
+          ),
+        ),
+      );
+    } else if (next?.spineIndex === current.spineIndex) {
+      // Some converted EPUBs place several chapters in one HTML file. epub.js
+      // exposes page numbers for that file rather than each internal heading,
+      // so section-page progress is the most stable available approximation.
+      progress = Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            ((Math.max(1, page.page) - 1) / Math.max(1, page.total)) * 100,
+          ),
+        ),
+      );
+    }
+  }
+  return {
+    index: index + 1,
+    total: chapters.length,
+    progress,
+    previous: chapters[index - 1],
+    current,
+    next,
+  };
 }
 
 export function chapterAt(

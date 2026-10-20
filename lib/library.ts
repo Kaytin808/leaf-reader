@@ -1,4 +1,5 @@
 import { openDB, type DBSchema } from 'idb';
+import type { ReadingActivity } from './reading-statistics';
 
 export type Format = 'epub' | 'pdf' | 'txt';
 export type Position = {
@@ -44,6 +45,7 @@ export type LibraryBook = {
   readingTimeMs?: number;
   finishedReadingTimeMs?: number;
   completedAt?: number;
+  readingActivity?: ReadingActivity;
   cover?: string;
   metadataVersion?: number;
   metadataEdited?: boolean;
@@ -110,6 +112,21 @@ export async function deleteBook(id: string) {
     tx.objectStore('files').delete(id),
     tx.done,
   ]);
+}
+export async function replaceLibrary(
+  entries: Array<{ book: LibraryBook; file: Blob }>,
+) {
+  const database = await db();
+  const tx = database.transaction(['books', 'files'], 'readwrite');
+  await Promise.all([
+    tx.objectStore('books').clear(),
+    tx.objectStore('files').clear(),
+  ]);
+  for (const { book, file } of entries) {
+    await tx.objectStore('books').put(book);
+    await tx.objectStore('files').put(file, book.id);
+  }
+  await tx.done;
 }
 export function formatBytes(bytes: number) {
   return bytes < 1048576

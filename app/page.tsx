@@ -21,6 +21,12 @@ import {
   Pencil,
   ImagePlus,
   Clock3,
+  Target,
+  Flame,
+  BarChart3,
+  DatabaseBackup,
+  ArchiveRestore,
+  Timer,
 } from 'lucide-react';
 import {
   Dialog,
@@ -59,7 +65,25 @@ import {
   updateBook,
   type LibraryBook,
 } from '@/lib/library';
-import { readingTimeStatus } from '@/lib/reading-statistics';
+import {
+  DEFAULT_READING_GOALS,
+  combineReadingActivity,
+  estimatedTimeRemainingStatus,
+  localDayKey,
+  normalizeReadingGoals,
+  readingStreak,
+  readingTimeStatus,
+  weeklyReading,
+  type ReadingGoals,
+} from '@/lib/reading-statistics';
+import {
+  BACKUP_SETTING_KEYS,
+  createLibraryBackup,
+  inspectLibraryBackup,
+  restoreLibraryBackup,
+  type LibraryBackupManifest,
+} from '@/lib/library-backup';
+import packageInfo from '@/package.json';
 import { inspectFile, METADATA_VERSION, SAMPLE_TEXT } from '@/lib/book-files';
 import { ThemeButtons } from '@/components/theme-provider';
 import {
@@ -100,6 +124,13 @@ export default function Home() {
   const coverSearchRequest = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const coverInput = useRef<HTMLInputElement>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
+  const [goals, setGoals] = useState<ReadingGoals>(DEFAULT_READING_GOALS);
+  const [goalsReady, setGoalsReady] = useState(false);
+  const [restoreCandidate, setRestoreCandidate] = useState<{
+    file: File;
+    manifest: LibraryBackupManifest;
+  } | null>(null);
   const active = books.find((b) => b.id === activeId);
   const recent = [...books]
     .filter((b) => b.lastRead > 0 && !isBookFinished(b))
@@ -185,6 +216,23 @@ export default function Home() {
       )
       .finally(() => setReady(true));
   }, [refresh]);
+  useEffect(() => {
+    try {
+      setGoals(
+        normalizeReadingGoals(
+          JSON.parse(localStorage.getItem('leaf-reading-goals') || 'null'),
+        ),
+      );
+    } catch {
+      setGoals(DEFAULT_READING_GOALS);
+    } finally {
+      setGoalsReady(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (goalsReady)
+      localStorage.setItem('leaf-reading-goals', JSON.stringify(goals));
+  }, [goals, goalsReady]);
   useEffect(() => {
     const handle = () => {
       void refresh().catch(() => {});
@@ -274,6 +322,46 @@ export default function Home() {
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       setNotice(errorMessage(e));
+    }
+  }
+  async function exportBackup() {
+    setBusy(true);
+    try {
+      const settings = Object.fromEntries(
+        BACKUP_SETTING_KEYS.flatMap((key) => {
+          const value = localStorage.getItem(key);
+          return value === null ? [] : [[key, value]];
+        }),
+      );
+      const file = await createLibraryBackup(packageInfo.version, settings);
+      const filename = `kaylas-library-backup-${localDayKey()}.zip`;
+      const { shareBookFile } = await import('@/lib/native');
+      if (!(await shareBookFile(file, filename))) {
+        const url = URL.createObjectURL(file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      setNotice('Library backup created. Keep it somewhere safe.');
+    } catch (error) {
+      setNotice(`Backup failed: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function chooseBackup(file?: File) {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const { manifest } = await inspectLibraryBackup(file);
+      setRestoreCandidate({ file, manifest });
+    } catch (error) {
+      setNotice(errorMessage(error));
+    } finally {
+      setBusy(false);
+      if (backupInput.current) backupInput.current.value = '';
     }
   }
   function openEditor(book: LibraryBook) {
@@ -470,6 +558,22 @@ export default function Home() {
             : isBookFinished(b))),
     )
     .sort((a, b) => (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt));
+  const readingActivity = combineReadingActivity(
+    books.map((book) => book.readingActivity),
+  );
+  const todayActivity = readingActivity[localDayKey()] || {
+    readingTimeMs: 0,
+    pages: 0,
+  };
+  const week = weeklyReading(readingActivity);
+  const streak = readingStreak(readingActivity);
+  const maxWeekMinutes = Math.max(1, ...week.map((day) => day.minutes));
+  const maxWeekPages = Math.max(1, ...week.map((day) => day.pages));
+  const finishedBooks = books
+    .filter(isBookFinished)
+    .sort(
+      (a, b) => (b.completedAt || b.lastRead) - (a.completedAt || a.lastRead),
+    );
   return (
     <main className="library-shell">
       <header className="masthead">
@@ -489,16 +593,40 @@ export default function Home() {
           <h1>Your library.</h1>
           <p>All your books. Right where you left them.</p>
         </div>
-        <button
-          className="primary"
-          onClick={() => {
-            setFailures([]);
-            setImportOpen(true);
-          }}
-          disabled={!ready || busy}
-        >
-          <Plus size={19} /> Import books
-        </button>
+        <div className="library-actions">
+          <button
+            className="secondary-button"
+            onClick={() => void exportBackup()}
+            disabled={!ready || busy}
+          >
+            <DatabaseBackup size={18} /> Back up
+          </button>
+          <button
+            className="secondary-button"
+            onClick={() => backupInput.current?.click()}
+            disabled={!ready || busy}
+          >
+            <ArchiveRestore size={18} /> Restore
+          </button>
+          <input
+            ref={backupInput}
+            type="file"
+            className="sr-only"
+            accept=".zip,application/zip,application/x-zip-compressed"
+            aria-label="Choose a Kayla's Library backup"
+            onChange={(event) => void chooseBackup(event.target.files?.[0])}
+          />
+          <button
+            className="primary"
+            onClick={() => {
+              setFailures([]);
+              setImportOpen(true);
+            }}
+            disabled={!ready || busy}
+          >
+            <Plus size={19} /> Import books
+          </button>
+        </div>
       </section>
       {notice && (
         <output className="library-notice">
@@ -511,6 +639,155 @@ export default function Home() {
             <X size={16} />
           </button>
         </output>
+      )}
+      {ready && (
+        <section
+          className="reading-dashboard"
+          aria-labelledby="reading-goals-title"
+        >
+          <div className="reading-dashboard-heading">
+            <div>
+              <span className="section-label">YOUR READING RHYTHM</span>
+              <h2 id="reading-goals-title">Reading goals</h2>
+            </div>
+            <div className="streak-badge">
+              <Flame size={20} />
+              <strong>{streak}</strong>
+              <span>day streak</span>
+            </div>
+          </div>
+          <div className="goal-grid">
+            <article className="goal-card">
+              <div className="goal-card-title">
+                <Timer size={19} /> Minutes today
+              </div>
+              <strong>
+                {Math.floor(todayActivity.readingTimeMs / 60_000)}
+              </strong>
+              <span>of</span>
+              <label>
+                <input
+                  aria-label="Daily minute goal"
+                  type="number"
+                  min="0"
+                  max="1440"
+                  value={goals.minutes}
+                  onChange={(event) =>
+                    setGoals((current) =>
+                      normalizeReadingGoals({
+                        ...current,
+                        minutes: Number(event.target.value),
+                      }),
+                    )
+                  }
+                />
+                min
+              </label>
+              <Progress
+                value={
+                  goals.minutes
+                    ? Math.min(
+                        100,
+                        (todayActivity.readingTimeMs / 60_000 / goals.minutes) *
+                          100,
+                      )
+                    : 100
+                }
+                aria-label="Daily minute goal progress"
+              />
+            </article>
+            <article className="goal-card">
+              <div className="goal-card-title">
+                <Target size={19} /> Pages today
+              </div>
+              <strong>{todayActivity.pages}</strong>
+              <span>of</span>
+              <label>
+                <input
+                  aria-label="Daily page goal"
+                  type="number"
+                  min="0"
+                  max="1000"
+                  value={goals.pages}
+                  onChange={(event) =>
+                    setGoals((current) =>
+                      normalizeReadingGoals({
+                        ...current,
+                        pages: Number(event.target.value),
+                      }),
+                    )
+                  }
+                />
+                pages
+              </label>
+              <Progress
+                value={
+                  goals.pages
+                    ? Math.min(100, (todayActivity.pages / goals.pages) * 100)
+                    : 100
+                }
+                aria-label="Daily page goal progress"
+              />
+            </article>
+            <article className="weekly-card">
+              <div className="goal-card-title">
+                <BarChart3 size={19} /> Last seven days
+              </div>
+              <div className="weekly-chart">
+                {week.map((day) => (
+                  <div className="week-column" key={day.key}>
+                    <div
+                      className="week-bars"
+                      title={`${day.minutes} min · ${day.pages} pages`}
+                    >
+                      <span
+                        className="minutes-bar"
+                        style={{
+                          height: `${Math.max(day.minutes ? 8 : 0, (day.minutes / maxWeekMinutes) * 100)}%`,
+                        }}
+                      />
+                      <span
+                        className="pages-bar"
+                        style={{
+                          height: `${Math.max(day.pages ? 8 : 0, (day.pages / maxWeekPages) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <small>{day.label.slice(0, 2)}</small>
+                  </div>
+                ))}
+              </div>
+              <p>
+                <span className="chart-key minutes-key" /> Minutes{' '}
+                <span className="chart-key pages-key" /> Pages
+              </p>
+            </article>
+          </div>
+          {finishedBooks.length > 0 && (
+            <div className="finished-history">
+              <h3>Finished-book history</h3>
+              <div>
+                {finishedBooks.slice(0, 6).map((book) => (
+                  <button key={book.id} onClick={() => setActiveId(book.id)}>
+                    <BookCover book={book} />
+                    <span>
+                      <strong>{book.title}</strong>
+                      <small>
+                        {book.completedAt
+                          ? new Intl.DateTimeFormat(undefined, {
+                              dateStyle: 'medium',
+                            }).format(book.completedAt)
+                          : 'Finished'}
+                        {' · '}
+                        {readingTimeStatus(true, book.finishedReadingTimeMs)}
+                      </small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       )}
       {recent ? (
         <section className="continue-panel">
@@ -535,6 +812,18 @@ export default function Home() {
                     : recent.readingTimeMs,
                 )}
               </span>
+              {estimatedTimeRemainingStatus(
+                recent.position.progress,
+                recent.readingTimeMs,
+              ) && (
+                <span className="continue-reading-time">
+                  <Timer size={13} />
+                  {estimatedTimeRemainingStatus(
+                    recent.position.progress,
+                    recent.readingTimeMs,
+                  )}
+                </span>
+              )}
             </div>
             <button
               className="light-button"
@@ -668,6 +957,19 @@ export default function Home() {
                                 : book.readingTimeMs,
                             )}
                           </p>
+                          {!isBookFinished(book) &&
+                            estimatedTimeRemainingStatus(
+                              book.position.progress,
+                              book.readingTimeMs,
+                            ) && (
+                              <p className="card-reading-time">
+                                <Timer size={12} />
+                                {estimatedTimeRemainingStatus(
+                                  book.position.progress,
+                                  book.readingTimeMs,
+                                )}
+                              </p>
+                            )}
                           <p
                             className="card-location"
                             title={positionLabel(book.position)}
@@ -746,8 +1048,8 @@ export default function Home() {
       <footer>
         <HardDrive size={15} />
         <p>
-          Saved on this device. Keep your original files — clearing browser data
-          clears this library.
+          Saved on this device. Use Back up before reinstalling or changing IPA
+          builds so your books and progress can be restored.
         </p>
         <span>ONE PAGE AT A TIME.</span>
       </footer>
@@ -958,6 +1260,58 @@ export default function Home() {
           </form>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={!!restoreCandidate}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRestoreCandidate(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Restore this library backup?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This backup contains {restoreCandidate?.manifest.books.length || 0}{' '}
+            {(restoreCandidate?.manifest.books.length || 0) === 1
+              ? 'book'
+              : 'books'}
+            . Restoring replaces the library currently stored on this device,
+            including its progress, bookmarks, highlights, covers, statistics,
+            and settings.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={async () => {
+                if (!restoreCandidate) return;
+                setBusy(true);
+                try {
+                  const manifest = await restoreLibraryBackup(
+                    restoreCandidate.file,
+                  );
+                  for (const key of BACKUP_SETTING_KEYS) {
+                    const value = manifest.settings[key];
+                    if (value === undefined) localStorage.removeItem(key);
+                    else localStorage.setItem(key, value);
+                  }
+                  setRestoreCandidate(null);
+                  await refresh();
+                  setNotice(
+                    `Restored ${manifest.books.length} ${manifest.books.length === 1 ? 'book' : 'books'} and all saved reading data.`,
+                  );
+                  window.setTimeout(() => window.location.reload(), 350);
+                } catch (error) {
+                  setRestoreCandidate(null);
+                  setNotice(`Restore failed: ${errorMessage(error)}`);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Restore and replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={!!remove}
         onOpenChange={(open) => {

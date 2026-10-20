@@ -26,10 +26,23 @@ for (const key of [
 }
 const { inspectFile, prepareEpub, splitText } =
   await import('../lib/book-files');
-const { addBook, listBooks, getFile, updateBook, deleteBook, fileId } =
-  await import('../lib/library');
-const { chapterIndex, positionForEpub, repairChapterLabel } =
-  await import('../lib/chapters');
+const {
+  addBook,
+  listBooks,
+  getFile,
+  updateBook,
+  deleteBook,
+  fileId,
+  replaceLibrary,
+} = await import('../lib/library');
+const { createLibraryBackup, inspectLibraryBackup, restoreLibraryBackup } =
+  await import('../lib/library-backup');
+const {
+  chapterIndex,
+  chapterReadingStatus,
+  positionForEpub,
+  repairChapterLabel,
+} = await import('../lib/chapters');
 
 async function epubFixture(hostile = false) {
   const zip = new JSZip();
@@ -195,6 +208,78 @@ test('EPUB progress records the real table-of-contents chapter after a chapter c
   }
 });
 
+test('chapter status exposes previous, next, and progress within the chapter', () => {
+  const chapters = [
+    {
+      label: 'One',
+      href: 'one',
+      depth: 0,
+      spineIndex: 0,
+      cfi: 'epubcfi(/6/2)',
+    },
+    {
+      label: 'Two',
+      href: 'two',
+      depth: 0,
+      spineIndex: 2,
+      cfi: 'epubcfi(/6/6)',
+    },
+    {
+      label: 'Three',
+      href: 'three',
+      depth: 0,
+      spineIndex: 4,
+      cfi: 'epubcfi(/6/10)',
+    },
+  ];
+  const status = chapterReadingStatus(chapters, {
+    location: 'epubcfi(/6/6)',
+    progress: 50,
+    label: 'Two',
+    chapterCfi: 'epubcfi(/6/6)',
+    epubPage: { page: 2, total: 4, section: 4, sections: 6 },
+  });
+  assert.equal(status.index, 2);
+  assert.equal(status.total, 3);
+  assert.equal(status.previous?.label, 'One');
+  assert.equal(status.next?.label, 'Three');
+  assert.equal(status.progress, 63);
+});
+
+test('chapter status remains available when converted chapters share one file', () => {
+  const sameSection = [
+    {
+      label: 'One',
+      href: 'story.xhtml#one',
+      depth: 0,
+      spineIndex: 0,
+      cfi: 'epubcfi(/6/2!/4/2:0)',
+    },
+    {
+      label: 'Two',
+      href: 'story.xhtml#two',
+      depth: 0,
+      spineIndex: 0,
+      cfi: 'epubcfi(/6/2!/4/8:0)',
+    },
+  ];
+  const status = chapterReadingStatus(sameSection, {
+    location: 'epubcfi(/6/2!/4/10:0)',
+    label: 'Two',
+    progress: 20,
+    epubPage: { page: 6, total: 10, section: 1, sections: 1 },
+  });
+  assert.equal(status.index, 2);
+  assert.equal(status.progress, 50);
+  const first = chapterReadingStatus(sameSection, {
+    location: 'epubcfi(/6/2!/4/4:0)',
+    label: 'One',
+    progress: 10,
+    epubPage: { page: 4, total: 10, section: 1, sections: 1 },
+  });
+  assert.equal(first.progress, 30);
+});
+
 test('EPUB chapter headings are detected when navigation is missing', async () => {
   const fixture = await JSZip.loadAsync(await epubFixture());
   const opf = await fixture.file('OEBPS/content.opf')!.async('text');
@@ -288,6 +373,10 @@ test('a chapter spanning multiple spine files keeps its name until the next chap
     'OEBPS/nav.xhtml',
     '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol><li><a href="chapter.xhtml#start">Chapter one</a></li></ol></nav></body></html>',
   );
+  zip.file(
+    'OEBPS/chapter-2.xhtml',
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Story continues</title></head><body><p>The same chapter continues on a new spine item.</p></body></html>',
+  );
   const { Book } = await import('epubjs');
   const book = new Book({ replacements: 'blobUrl' });
   try {
@@ -338,6 +427,65 @@ test('stored file, progress and bookmarks survive new database connections, conc
     updateBook(book.id, { title: 'No resurrection' }),
     /no longer/,
   );
+});
+
+test('full-library backup restores files, positions, highlights, statistics, covers, and settings', async () => {
+  await replaceLibrary([]);
+  const file = new File(['A backup test book.'], 'backup.txt', {
+    type: 'text/plain',
+  });
+  const inspected = await inspectFile(file);
+  const book = {
+    ...inspected,
+    cover: 'data:image/png;base64,AA==',
+    readingTimeMs: 90_000,
+    readingActivity: {
+      '2026-10-20': { readingTimeMs: 90_000, pages: 4 },
+    },
+    position: { location: '2', progress: 50, label: 'Page 2 of 4' },
+    bookmarks: [
+      {
+        location: '2',
+        progress: 50,
+        label: 'Page 2 of 4',
+        id: 'bookmark',
+        createdAt: 1,
+      },
+    ],
+    highlights: [
+      {
+        location: '2',
+        progress: 50,
+        label: 'Chapter one',
+        id: 'highlight',
+        createdAt: 2,
+        cfiRange: 'epubcfi(/6/2!/4/2,/1:0,/1:4)',
+        text: 'test',
+        color: 'yellow' as const,
+      },
+    ],
+  };
+  await addBook(book, file);
+  const backup = await createLibraryBackup('0.1.14', {
+    'leaf-app-theme': 'dark',
+    'leaf-reading-goals': '{"minutes":25,"pages":12}',
+  });
+  const parsed = await inspectLibraryBackup(backup);
+  assert.equal(parsed.manifest.books.length, 1);
+  assert.equal(parsed.manifest.settings['leaf-app-theme'], 'dark');
+  assert.equal(await parsed.entries[0].file.text(), 'A backup test book.');
+  await replaceLibrary([]);
+  assert.equal((await listBooks()).length, 0);
+  const manifest = await restoreLibraryBackup(backup);
+  const restored = (await listBooks())[0];
+  assert.equal(manifest.appVersion, '0.1.14');
+  assert.equal(restored.position.location, '2');
+  assert.equal(restored.bookmarks[0].id, 'bookmark');
+  assert.equal(restored.highlights?.[0].id, 'highlight');
+  assert.equal(restored.readingActivity?.['2026-10-20'].pages, 4);
+  assert.equal(restored.cover, book.cover);
+  assert.equal(await (await getFile(restored.id)).text(), await file.text());
+  await replaceLibrary([]);
 });
 
 test('text pagination preserves every character, long words, whitespace and emoji', () => {
