@@ -97,7 +97,15 @@ test('EPUB selection is stored as a reusable annotation and saved-location link'
   assert.match(readerSource, /createHighlight\(/);
   assert.match(readerSource, /annotations\.add\(/);
   assert.match(readerSource, /annotations\.remove\(highlight\.cfiRange/);
-  assert.match(readerSource, /goTo\(highlight\.location\)/);
+  assert.match(readerSource, /visitHighlight\(highlight\)/);
+  assert.match(readerSource, /Viewing a highlight\. Your reading place is/);
+  assert.match(readerSource, /Back to reading spot/);
+  assert.match(readerSource, /Continue from here/);
+  assert.match(readerSource, /if \(highlightVisitRef\.current\) return;/);
+  assert.match(
+    readerSource,
+    /await writeQueue\.current\.catch\(\(\) => \{\}\)/,
+  );
   assert.match(
     readerSource,
     /onPointerDown=\{\(\) => void captureCurrentEpubSelection\(\)\}/,

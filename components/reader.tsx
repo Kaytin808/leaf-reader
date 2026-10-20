@@ -76,6 +76,12 @@ import { version } from '@/package.json';
 import { ReadingClock, readingTimeStatus } from '@/lib/reading-statistics';
 import { createHighlight } from '@/lib/highlights';
 import {
+  beginHighlightVisit,
+  finishHighlightVisit,
+  moveHighlightVisit,
+  type HighlightVisit,
+} from '@/lib/highlight-visits';
+import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
   LETTER_SPACING,
@@ -143,6 +149,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const [pendingHighlight, setPendingHighlight] = useState<Highlight | null>(
     null,
   );
+  const [highlightVisit, setHighlightVisit] = useState<HighlightVisit | null>(
+    null,
+  );
+  const highlightVisitRef = useRef<HighlightVisit | null>(null);
   const pendingHighlightRef = useRef<Highlight | null>(null);
   const pendingHighlightRange = useRef<string | null>(null);
   const selectedContents = useRef<Contents | null>(null);
@@ -267,6 +277,36 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   useEffect(() => {
     settings.current = { theme, fontSize, font, spacing, margin, alignment };
   }, [theme, fontSize, font, spacing, margin, alignment]);
+  const updateHighlightVisit = useCallback((visit: HighlightVisit | null) => {
+    highlightVisitRef.current = visit;
+    setHighlightVisit(visit);
+  }, []);
+  const recordHighlightVisitLocation = useCallback(
+    (location: Location, target?: string) => {
+      const visit = highlightVisitRef.current;
+      if (!visit) return false;
+      let sectionCount = 0;
+      epub.current?.spine.each(() => sectionCount++);
+      setAtStart(location.atStart);
+      setAtEnd(location.atEnd);
+      updateHighlightVisit(
+        moveHighlightVisit(
+          visit,
+          positionForEpub(
+            location,
+            chapterData.current,
+            sectionCount,
+            target,
+            settings.current.fontSize,
+          ),
+        ),
+      );
+      if (!target || requestedCfi.current === target)
+        requestedCfi.current = undefined;
+      return true;
+    },
+    [updateHighlightVisit],
+  );
   const queueHighlight = useCallback((cfiRange: string, contents: Contents) => {
     if (pendingHighlightRange.current === cfiRange)
       return pendingHighlightRef.current;
@@ -284,6 +324,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     return repaired;
   }, []);
   const save = useCallback((next: Position, reachedEnd = false) => {
+    // A highlight visit is a temporary preview, not a new reading position.
+    // Keep this guard at the single write entry point as a final safety net for
+    // relocated/resize events that may arrive while the quote is being shown.
+    if (highlightVisitRef.current) return;
     const now = Date.now();
     const normalized = {
       ...next,
@@ -625,6 +669,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               sectionCount++;
             });
             const requested = requestedCfi.current ?? current.current.location;
+            if (recordHighlightVisitLocation(loc, requested)) return;
             requestedCfi.current = undefined;
             const next = positionForEpub(
               loc,
@@ -729,7 +774,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       if (loadingTask) void loadingTask.destroy();
     };
-  }, [queueHighlight, save, toggleControls]);
+  }, [queueHighlight, recordHighlightVisitLocation, save, toggleControls]);
 
   useEffect(() => {
     try {
@@ -799,7 +844,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       navigationPending.current = true;
       setTurning(true);
-      const previous = current.current.location;
+      const previous =
+        highlightVisitRef.current?.current.location ?? current.current.location;
       try {
         r.themes.override('color', palette[theme].fg, true);
         r.themes.override('background', palette[theme].bg, true);
@@ -820,15 +866,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           requestedCfi.current = previous;
           setAtStart(reported.atStart);
           setAtEnd(reported.atEnd);
-          save(
-            positionAfterReflow(
-              reported,
-              current.current,
-              chapterData.current,
-              count,
-              fontSize,
-            ),
-          );
+          if (!recordHighlightVisitLocation(reported, previous))
+            save(
+              positionAfterReflow(
+                reported,
+                current.current,
+                chapterData.current,
+                count,
+                fontSize,
+              ),
+            );
           requestedCfi.current = undefined;
         }
       } catch {
@@ -847,7 +894,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [theme, fontSize, font, spacing, margin, alignment, save]);
+  }, [
+    theme,
+    fontSize,
+    font,
+    spacing,
+    margin,
+    alignment,
+    recordHighlightVisitLocation,
+    save,
+  ]);
 
   useEffect(() => {
     if (book.format === 'epub' || loading || !total) return;
@@ -895,7 +951,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
-      layoutReflow.current.begin(current.current);
+      layoutReflow.current.begin(
+        highlightVisitRef.current?.current ?? current.current,
+      );
       setSaveState('Fitting page…');
       clearTimeout(timer);
       const resizeAtCurrentPage = async () => {
@@ -932,15 +990,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             requestedCfi.current = previous;
             setAtStart(reported.atStart);
             setAtEnd(reported.atEnd);
-            save(
-              positionAfterReflow(
-                reported,
-                anchor,
-                chapterData.current,
-                sectionCount,
-                settings.current.fontSize,
-              ),
-            );
+            if (!recordHighlightVisitLocation(reported, previous))
+              save(
+                positionAfterReflow(
+                  reported,
+                  anchor,
+                  chapterData.current,
+                  sectionCount,
+                  settings.current.fontSize,
+                ),
+              );
             requestedCfi.current = undefined;
           }
         } catch {
@@ -964,7 +1023,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [book.format, save]);
+  }, [book.format, recordHighlightVisitLocation, save]);
 
   async function turn(direction: -1 | 1) {
     if (
@@ -993,8 +1052,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           : rendition.current?.prev());
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
-          persistEpubLocation(location);
-          await writeQueue.current;
+          if (!recordHighlightVisitLocation(location)) {
+            persistEpubLocation(location);
+            await writeQueue.current;
+          }
         }
       } catch {
         setError('Could not turn this page. Try the chapter list.');
@@ -1148,13 +1209,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setError(errorMessage(e));
     }
   }
-  async function goTo(location: string) {
+  async function goTo(location: string, temporaryHighlight = false) {
     if (navigationPending.current || layoutReflow.current.pending || closing)
       return;
     if (document.visibilityState === 'visible' && !completed.current)
       readingClock.current.activity(Date.now());
     setError('');
     setPanel(null);
+    if (!temporaryHighlight) updateHighlightVisit(null);
     try {
       if (book.format === 'epub' && rendition.current) {
         setTurning(true);
@@ -1164,8 +1226,10 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           : undefined;
         await rendition.current.display(location);
         const reported = await reportLatestLocation(rendition.current);
-        persistEpubLocation(reported, requestedCfi.current);
-        await writeQueue.current;
+        if (!recordHighlightVisitLocation(reported, requestedCfi.current)) {
+          persistEpubLocation(reported, requestedCfi.current);
+          await writeQueue.current;
+        }
         const details = current.current.epubPage;
         if (
           details &&
@@ -1185,7 +1249,76 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         }
       } else setPage(Math.max(1, Math.min(total, Number(location) || 1)));
     } catch {
+      if (temporaryHighlight) updateHighlightVisit(null);
       setError('This saved location could not be opened.');
+    } finally {
+      navigationPending.current = false;
+      setTurning(false);
+    }
+  }
+  async function visitHighlight(highlight: Highlight) {
+    // Let the real reading position finish writing before opening a temporary
+    // quote preview. Nothing shown during the visit may enter that write queue.
+    await writeQueue.current.catch(() => {});
+    const returnTo = highlightVisitRef.current?.returnTo ?? current.current;
+    updateHighlightVisit(beginHighlightVisit(returnTo, highlight));
+    await goTo(highlight.location, true);
+  }
+  async function returnFromHighlight() {
+    const visit = highlightVisitRef.current;
+    const reader = rendition.current;
+    if (
+      !visit ||
+      !reader ||
+      navigationPending.current ||
+      layoutReflow.current.pending ||
+      closing
+    )
+      return;
+    setTurning(true);
+    navigationPending.current = true;
+    setError('');
+    try {
+      const destination = finishHighlightVisit(visit, 'return');
+      requestedCfi.current = destination.location;
+      await reader.display(destination.location);
+      const reported = await reportLatestLocation(reader);
+      setAtStart(reported.atStart);
+      setAtEnd(reported.atEnd);
+      current.current = destination;
+      setPosition(destination);
+      updateHighlightVisit(null);
+      requestedCfi.current = undefined;
+      setSaveState('Place saved');
+    } catch {
+      setError('Your saved reading spot could not be reopened.');
+    } finally {
+      navigationPending.current = false;
+      setTurning(false);
+    }
+  }
+  async function continueFromHighlight() {
+    const visit = highlightVisitRef.current;
+    const reader = rendition.current;
+    if (
+      !visit ||
+      !reader ||
+      navigationPending.current ||
+      layoutReflow.current.pending ||
+      closing
+    )
+      return;
+    setTurning(true);
+    navigationPending.current = true;
+    setError('');
+    try {
+      const destination = finishHighlightVisit(visit, 'continue');
+      const reported = await reportLatestLocation(reader);
+      updateHighlightVisit(null);
+      persistEpubLocation(reported, destination.location);
+      await writeQueue.current;
+    } catch {
+      setError('This spot could not be made your new reading place.');
     } finally {
       navigationPending.current = false;
       setTurning(false);
@@ -1221,12 +1354,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     flushReadingTime(true);
     try {
       if (rendition.current && epubReady.current && !loading) {
-        navigationPending.current = true;
-        requestedCfi.current = undefined;
-        persistEpubLocation(
-          await reportLatestLocation(rendition.current),
-          current.current.location,
-        );
+        if (!highlightVisitRef.current) {
+          navigationPending.current = true;
+          requestedCfi.current = undefined;
+          persistEpubLocation(
+            await reportLatestLocation(rendition.current),
+            current.current.location,
+          );
+        }
       } else if (book.format !== 'epub' && !loading && total) {
         const finalPage = Math.max(1, Math.min(total, page));
         save(
@@ -1388,6 +1523,28 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             <X size={16} />
           </button>
         </div>
+      )}
+      {highlightVisit && (
+        <aside className="reader-highlight-visit" aria-live="polite">
+          <span>
+            <Highlighter size={15} /> Viewing a highlight. Your reading place is
+            safe.
+          </span>
+          <div>
+            <button
+              className="text-button"
+              onClick={() => void returnFromHighlight()}
+            >
+              Back to reading spot
+            </button>
+            <button
+              className="secondary-button"
+              onClick={() => void continueFromHighlight()}
+            >
+              Continue from here
+            </button>
+          </div>
+        </aside>
       )}
       {pendingHighlight && (
         <dialog open className="reader-highlight-action" aria-live="polite">
@@ -1781,7 +1938,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               {highlights.length ? (
                 highlights.map((highlight) => (
                   <div key={highlight.id}>
-                    <button onClick={() => void goTo(highlight.location)}>
+                    <button onClick={() => void visitHighlight(highlight)}>
                       <Highlighter size={17} />
                       <span>
                         <q>{highlight.text}</q>
