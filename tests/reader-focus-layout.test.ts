@@ -25,7 +25,7 @@ function nativeRule(selector: string) {
   return nativeCss.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 }
 
-test('focus hides controls without resizing or repaginating the reading viewport', () => {
+test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT the full height', () => {
   const reader = rule('.reader');
   assert.match(reader, /display:\s*grid/);
   assert.match(reader, /--reader-header-height/);
@@ -46,7 +46,8 @@ test('focus hides controls without resizing or repaginating the reading viewport
   assert.match(epubArea, /margin:\s*0 auto/);
 
   assert.doesNotMatch(reader, /transition:\s*grid-template-rows/);
-  assert.doesNotMatch(rule('.reader-focus'), /grid-template-rows/);
+  // Toolbars never shrink the page by animating rows; Focus switches rows once.
+  assert.doesNotMatch(css, /\n\.reader-focus \{[^}]*grid-template-rows/);
 
   for (const selector of [
     '.reader-focus .reader-header',
@@ -60,24 +61,40 @@ test('focus hides controls without resizing or repaginating the reading viewport
   assert.match(rule('.reader-header'), /position:\s*relative/);
   assert.match(rule('.reader-bottom'), /position:\s*relative/);
 
-  // EPUB and TXT pages span the full height; toolbars float over the text.
-  assert.match(rule('.reader-full-page'), /grid-template-rows:\s*minmax\(0, 1fr\)/);
+  // Normal reading: no page-wide rule, so text sits between the toolbars.
+  assert.doesNotMatch(css, /\n\.reader-full-page \{/);
+  // Focus (EPUB and TXT only): the page fills the screen and the hidden
+  // toolbars stack over it while they slide away.
+  assert.match(
+    css,
+    /\n\.reader-full-page\.reader-focus \{\s*grid-template-rows:\s*minmax\(0, 1fr\);/,
+  );
   const stacked = css.match(
-    /\.reader-full-page > \.reader-header,\s*\.reader-full-page > \.reading-area,\s*\.reader-full-page > \.reader-bottom\s*\{([^}]*)\}/,
+    /\.reader-full-page\.reader-focus > \.reader-header,\s*\.reader-full-page\.reader-focus > \.reading-area,\s*\.reader-full-page\.reader-focus > \.reader-bottom\s*\{([^}]*)\}/,
   )?.[1];
   assert.match(stacked ?? '', /grid-row:\s*1/);
   assert.match(
     css,
-    /\n\.reader-full-page > \.reader-header \{\s*align-self:\s*start;/,
+    /\n\.reader-full-page\.reader-focus > \.reader-header \{\s*align-self:\s*start;/,
   );
   assert.match(
     css,
-    /\n\.reader-full-page > \.reader-bottom \{\s*align-self:\s*end;/,
+    /\n\.reader-full-page\.reader-focus > \.reader-bottom \{\s*align-self:\s*end;/,
   );
-  assert.doesNotMatch(css, /\.reader-full-page[^{]*\.epub-area[^{]*\{[^}]*padding/);
   assert.match(
     readerSource,
     /book\.format === 'pdf' \? '' : 'reader-full-page'/,
+  );
+  // Resizes keep the first line on screen visible, aim again once the new
+  // columns settle, and only forget that line when the reader moves on.
+  assert.match(readerSource, /screenAnchor\.current = firstVisibleTextCfi\(/);
+  assert.match(readerSource, /const target = screenAnchor\.current \?\? previous;/);
+  assert.match(
+    readerSource,
+    /await r\.display\(target\);\s*\/\/[^\n]*\n[^\n]*\n\s*await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\);\s*await r\.display\(target\);/,
+  );
+  assert.ok(
+    (readerSource.match(/screenAnchor\.current = undefined;/g) || []).length >= 4,
   );
 
   const recoveryControl = rule('.reader-focus-actions');

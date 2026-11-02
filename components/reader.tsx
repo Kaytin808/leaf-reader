@@ -67,6 +67,7 @@ import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
 import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
+  firstVisibleTextCfi,
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
@@ -262,6 +263,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   interaction.current.blocked =
     loading || turning || closing || !!panel || !!picture || !!pendingHighlight;
   const requestedCfi = useRef<string | undefined>(undefined);
+  // The first line on screen when the page last moved. Resizes (Focus mode,
+  // rotation) keep that exact line visible; any page turn or jump clears it.
+  const screenAnchor = useRef<string | undefined>(undefined);
   const navigationPending = useRef(false);
   const previousAppTheme = useRef(appTheme.theme);
   const storedReaderTheme = useRef(false);
@@ -885,6 +889,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       navigationPending.current = true;
       setTurning(true);
+      screenAnchor.current = undefined;
       const previous =
         highlightVisitRef.current?.current.location ?? current.current.location;
       try {
@@ -995,6 +1000,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     let timer: ReturnType<typeof setTimeout>;
     const schedule = (delay = 160) => {
       if (!epubReady.current) return;
+      if (!screenAnchor.current && mount.current)
+        screenAnchor.current = firstVisibleTextCfi(
+          epubContents.current,
+          mount.current.getBoundingClientRect(),
+        );
       layoutReflow.current.begin(
         highlightVisitRef.current?.current ?? current.current,
       );
@@ -1013,6 +1023,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         if (!snapshot) return;
         const { anchor, revision } = snapshot;
         const previous = anchor.location;
+        const target = screenAnchor.current ?? previous;
         navigationPending.current = true;
         setTurning(true);
         try {
@@ -1020,9 +1031,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             r,
             area.clientWidth,
             area.clientHeight,
-            previous || undefined,
+            target || undefined,
           );
-          if (previous) await r.display(previous);
+          if (target) {
+            await r.display(target);
+            // The new columns finish laying out a frame later; aim again so
+            // the page is chosen from the settled layout, not the old one.
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await r.display(target);
+          }
           const reported = await reportLatestLocation(r);
           if (
             !cancelled &&
@@ -1087,6 +1104,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       readingClock.current.activity(Date.now());
     setError('');
     requestedCfi.current = undefined;
+    screenAnchor.current = undefined;
     if (book.format === 'epub') {
       setTurning(true);
       navigationPending.current = true;
@@ -1263,6 +1281,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       readingClock.current.activity(Date.now());
     setError('');
     setPanel(null);
+    screenAnchor.current = undefined;
     if (!temporaryHighlight) updateHighlightVisit(null);
     try {
       if (book.format === 'epub' && rendition.current) {
@@ -1325,6 +1344,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setTurning(true);
     navigationPending.current = true;
     setError('');
+    screenAnchor.current = undefined;
     try {
       const destination = finishHighlightVisit(visit, 'return');
       requestedCfi.current = destination.location;

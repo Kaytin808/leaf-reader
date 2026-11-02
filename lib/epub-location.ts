@@ -19,6 +19,58 @@ export async function reportLatestLocation(reader: LocationReader) {
   return location;
 }
 
+type VisibleContents = {
+  document: Document;
+  window: Window;
+  cfiFromRange: (range: Range) => string;
+};
+
+// A page's start CFI can point at the start of a paragraph that began on the
+// previous page. For a resize, anchor on the first character actually on
+// screen, so the new layout always shows the line the reader was looking at.
+export function firstVisibleTextCfi(
+  contents: Iterable<VisibleContents>,
+  area: DOMRect,
+) {
+  for (const content of contents) {
+    const frame = content.window.frameElement?.getBoundingClientRect();
+    if (!frame) continue;
+    const onScreen = (rect: DOMRect) =>
+      rect.width > 0 &&
+      frame.left + rect.left >= area.left - 1 &&
+      frame.left + rect.left < area.right - 1 &&
+      frame.top + rect.top >= area.top - 1 &&
+      frame.top + rect.bottom <= area.bottom + 1;
+    const doc = content.document;
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const range = doc.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const length = node.textContent?.length ?? 0;
+      if (!node.textContent?.trim()) continue;
+      range.selectNodeContents(node);
+      if (![...range.getClientRects()].some(onScreen)) continue;
+      for (let offset = 0; offset < length; offset++) {
+        if (!node.textContent[offset].trim()) continue;
+        range.setStart(node, offset);
+        range.setEnd(node, offset + 1);
+        if ([...range.getClientRects()].some(onScreen)) {
+          // A position at the very start of a line is measured by the browser
+          // as the end of the line before, which can be on the previous page.
+          // Point one character into the line so it stays on this page.
+          if (offset + 1 < length) range.setStart(node, offset + 1);
+          range.collapse(true);
+          try {
+            return content.cfiFromRange(range);
+          } catch {
+            return undefined;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 type RestorableReader = LocationReader & {
   display: (target?: string) => Promise<unknown>;
   resize: (width: number, height: number, target?: string) => void;
