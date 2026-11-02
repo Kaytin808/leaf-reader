@@ -60,6 +60,26 @@ test('focus hides controls without resizing or repaginating the reading viewport
   assert.match(rule('.reader-header'), /position:\s*relative/);
   assert.match(rule('.reader-bottom'), /position:\s*relative/);
 
+  // EPUB and TXT pages span the full height; toolbars float over the text.
+  assert.match(rule('.reader-full-page'), /grid-template-rows:\s*minmax\(0, 1fr\)/);
+  const stacked = css.match(
+    /\.reader-full-page > \.reader-header,\s*\.reader-full-page > \.reading-area,\s*\.reader-full-page > \.reader-bottom\s*\{([^}]*)\}/,
+  )?.[1];
+  assert.match(stacked ?? '', /grid-row:\s*1/);
+  assert.match(
+    css,
+    /\n\.reader-full-page > \.reader-header \{\s*align-self:\s*start;/,
+  );
+  assert.match(
+    css,
+    /\n\.reader-full-page > \.reader-bottom \{\s*align-self:\s*end;/,
+  );
+  assert.doesNotMatch(css, /\.reader-full-page[^{]*\.epub-area[^{]*\{[^}]*padding/);
+  assert.match(
+    readerSource,
+    /book\.format === 'pdf' \? '' : 'reader-full-page'/,
+  );
+
   const recoveryControl = rule('.reader-focus-actions');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
   assert.match(recoveryControl, /display:\s*none/);

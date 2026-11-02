@@ -768,6 +768,28 @@ footer span {
   opacity: 0;
   pointer-events: none;
 }
+/* EPUB and TXT pages always use the full screen height. The toolbars float
+   over the text, so showing or hiding them never resizes or repaginates. */
+.reader-full-page {
+  grid-template-rows: minmax(0, 1fr);
+}
+.reader-full-page > .reader-header,
+.reader-full-page > .reading-area,
+.reader-full-page > .reader-bottom {
+  grid-row: 1;
+  grid-column: 1;
+}
+.reader-full-page > .reader-header {
+  align-self: start;
+}
+.reader-full-page > .reader-bottom {
+  align-self: end;
+}
+/* Scrolling text can move clear of the floating toolbars. */
+.reader-full-page:not(.reader-focus) > .text-area {
+  padding-top: var(--reader-header-height, 78px);
+  padding-bottom: var(--reader-footer-height, 126px);
+}
 .reader-focus-actions {
   position: absolute;
   z-index: 30;

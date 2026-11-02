@@ -1446,7 +1446,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   return (
     <div
       ref={readerRoot}
-      className={`reader reader-${theme} ${controlsVisible ? '' : 'reader-focus'}`}
+      className={`reader reader-${theme} ${book.format === 'pdf' ? '' : 'reader-full-page'} ${controlsVisible ? '' : 'reader-focus'}`}
       aria-busy={loading}
     >
       <p id="reader-touch-help" className="sr-only">
