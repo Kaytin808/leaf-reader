@@ -67,7 +67,12 @@ import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
 import { bindReaderTaps } from '@/lib/reader-gestures';
 import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
+  alignTargetToPageTop,
+  clearPageShift,
+  clearPageSlide,
   firstVisibleTextCfi,
+  PAGE_SHIFT_CSS,
+  slidePageToTarget,
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
@@ -598,6 +603,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           r.hooks.content.register((contents: Contents) => {
             const doc = contents.document;
             renderedContents.add(contents);
+            const shiftStyle = doc.createElement('style');
+            shiftStyle.textContent = PAGE_SHIFT_CSS;
+            doc.head.appendChild(shiftStyle);
             const disposeTaps = bindReaderTaps(doc, {
               enabled: () => !interaction.current.blocked,
               canTurn: () => !pageTurnsLockedRef.current,
@@ -890,6 +898,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       navigationPending.current = true;
       setTurning(true);
       screenAnchor.current = undefined;
+      clearPageShift(epubContents.current);
       const previous =
         highlightVisitRef.current?.current.location ?? current.current.location;
       try {
@@ -1027,6 +1036,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         navigationPending.current = true;
         setTurning(true);
         try {
+          clearPageShift(epubContents.current);
           resizeEpubAt(
             r,
             area.clientWidth,
@@ -1039,6 +1049,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             // the page is chosen from the settled layout, not the old one.
             await new Promise((resolve) => requestAnimationFrame(resolve));
             await r.display(target);
+            // Start the page at the reader's line instead of mid-page.
+            // Redisplay either way: a failed attempt removes its gap again,
+            // and the fallback then slides this one page up to the line.
+            if (reflowableEpub.current && screenAnchor.current === target) {
+              const aligned = alignTargetToPageTop(
+                epubContents.current,
+                target,
+              );
+              await r.display(target);
+              if (!aligned) slidePageToTarget(epubContents.current, target);
+            }
           }
           const reported = await reportLatestLocation(r);
           if (
@@ -1105,6 +1126,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setError('');
     requestedCfi.current = undefined;
     screenAnchor.current = undefined;
+    clearPageSlide(epubContents.current);
     if (book.format === 'epub') {
       setTurning(true);
       navigationPending.current = true;
@@ -1282,6 +1304,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setError('');
     setPanel(null);
     screenAnchor.current = undefined;
+    clearPageSlide(epubContents.current);
     if (!temporaryHighlight) updateHighlightVisit(null);
     try {
       if (book.format === 'epub' && rendition.current) {
@@ -1345,6 +1368,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     navigationPending.current = true;
     setError('');
     screenAnchor.current = undefined;
+    clearPageSlide(epubContents.current);
     try {
       const destination = finishHighlightVisit(visit, 'return');
       requestedCfi.current = destination.location;

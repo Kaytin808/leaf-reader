@@ -96,6 +96,22 @@ test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT t
   assert.ok(
     (readerSource.match(/screenAnchor\.current = undefined;/g) || []).length >= 4,
   );
+  // After a resize the reader's line starts the page: first by an invisible
+  // gap, otherwise by sliding that one page up. Page turns and jumps undo the
+  // slide; any new layout clears both.
+  assert.match(
+    readerSource,
+    /const aligned = alignTargetToPageTop\([\s\S]*?await r\.display\(target\);\s*if \(!aligned\) slidePageToTarget\(epubContents\.current, target\);/,
+  );
+  assert.ok(
+    (readerSource.match(/clearPageSlide\(epubContents\.current\);/g) || [])
+      .length >= 3,
+  );
+  assert.ok(
+    (readerSource.match(/clearPageShift\(epubContents\.current\);/g) || [])
+      .length >= 2,
+  );
+  assert.match(readerSource, /shiftStyle\.textContent = PAGE_SHIFT_CSS;/);
 
   const recoveryControl = rule('.reader-focus-actions');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
