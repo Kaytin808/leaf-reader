@@ -57,6 +57,7 @@ export type LibraryBook = {
   position: Position;
   bookmarks: Bookmark[];
   highlights?: Highlight[];
+  shelves?: string[];
 };
 interface LibraryDB extends DBSchema {
   books: { key: string; value: LibraryBook };

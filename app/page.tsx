@@ -25,7 +25,34 @@ import {
   Library,
   BarChart3,
   Settings,
+  ArrowUpDown,
+  BookMarked,
+  Check,
 } from 'lucide-react';
+import {
+  libraryShelves,
+  matchShelfName,
+  MAX_SHELF_NAME,
+  onShelf,
+  renamedShelves,
+  sameShelf,
+  withShelf,
+} from '@/lib/shelves';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  DEFAULT_LIBRARY_SORT,
+  LIBRARY_SORT_KEY,
+  LIBRARY_SORTS,
+  normalizeLibrarySort,
+  sortBooks,
+  type LibrarySort,
+} from '@/lib/library-sort';
 import {
   Dialog,
   DialogContent,
@@ -121,7 +148,20 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [librarySort, setLibrarySort] =
+    useState<LibrarySort>(DEFAULT_LIBRARY_SORT);
+  const [sortReady, setSortReady] = useState(false);
   const [remove, setRemove] = useState<LibraryBook | null>(null);
+  const [shelvingId, setShelvingId] = useState<string | null>(null);
+  const [newShelf, setNewShelf] = useState('');
+  const [shelfError, setShelfError] = useState('');
+  // Shelves listed while the dialog is open, so unticking a shelf's last
+  // book doesn't make it vanish before it can be ticked again.
+  const [shelfChoices, setShelfChoices] = useState<string[]>([]);
+  const [shelfFilter, setShelfFilter] = useState<string | null>(null);
+  const [renamingShelf, setRenamingShelf] = useState<string | null>(null);
+  const [shelfRename, setShelfRename] = useState('');
+  const [deletingShelf, setDeletingShelf] = useState<string | null>(null);
   const [editing, setEditing] = useState<LibraryBook | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [draftAuthor, setDraftAuthor] = useState('');
@@ -244,6 +284,25 @@ export default function Home() {
     if (goalsReady)
       localStorage.setItem('leaf-reading-goals', JSON.stringify(goals));
   }, [goals, goalsReady]);
+  useEffect(() => {
+    try {
+      setLibrarySort(
+        normalizeLibrarySort(localStorage.getItem(LIBRARY_SORT_KEY)),
+      );
+    } catch {
+      /* The default sort is fine. */
+    } finally {
+      setSortReady(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (!sortReady) return;
+    try {
+      localStorage.setItem(LIBRARY_SORT_KEY, librarySort);
+    } catch {
+      /* The choice still applies until the app closes. */
+    }
+  }, [librarySort, sortReady]);
   useEffect(() => {
     const handle = () => {
       void refresh().catch(() => {});
@@ -434,6 +493,77 @@ export default function Home() {
       if (request === coverSearchRequest.current) setCoverSearching(false);
     }
   }
+  async function setBookShelf(bookId: string, name: string, on: boolean) {
+    try {
+      const updated = await updateBook(bookId, (stored) => ({
+        shelves: withShelf(stored, name, on),
+      }));
+      onUpdate(updated);
+      setShelfError('');
+    } catch (e) {
+      setShelfError(errorMessage(e));
+    }
+  }
+  async function addShelf() {
+    const name = matchShelfName(newShelf, dialogShelves);
+    if (!shelvingId) return;
+    if (!name) {
+      setShelfError('Type a name for the new shelf.');
+      return;
+    }
+    await setBookShelf(shelvingId, name, true);
+    setShelfChoices((choices) =>
+      choices.includes(name) ? choices : [...choices, name],
+    );
+    setNewShelf('');
+  }
+  // Rename or delete a shelf on every book that is on it.
+  async function changeShelfEverywhere(
+    from: string,
+    change: (book: LibraryBook) => string[],
+  ) {
+    try {
+      for (const book of books.filter((item) => onShelf(item, from)))
+        onUpdate(
+          await updateBook(book.id, (stored) => ({ shelves: change(stored) })),
+        );
+      return true;
+    } catch (e) {
+      setNotice(errorMessage(e));
+      return false;
+    }
+  }
+  async function renameShelf(from: string) {
+    const others = allShelves
+      .map((shelf) => shelf.name)
+      .filter((name) => !sameShelf(name, from));
+    const to = matchShelfName(shelfRename, others);
+    if (!to) {
+      setShelfError('Type a name for the shelf.');
+      return;
+    }
+    if (
+      await changeShelfEverywhere(from, (book) =>
+        renamedShelves(book, from, to),
+      )
+    ) {
+      if (shelfFilter && sameShelf(shelfFilter, from)) setShelfFilter(to);
+      setRenamingShelf(null);
+      setShelfError('');
+      setNotice(`Shelf renamed to “${to}”.`);
+    }
+  }
+  async function deleteShelf(name: string) {
+    if (
+      await changeShelfEverywhere(name, (book) => withShelf(book, name, false))
+    ) {
+      if (shelfFilter && sameShelf(shelfFilter, name)) setShelfFilter(null);
+      setNotice(
+        `Shelf “${name}” deleted. Its books are still in your library.`,
+      );
+    }
+    setDeletingShelf(null);
+  }
   async function saveDetails() {
     if (!editing) return;
     if (!draftTitle.trim() || !draftAuthor.trim()) {
@@ -559,15 +689,28 @@ export default function Home() {
     );
   const byRecent = (a: LibraryBook, b: LibraryBook) =>
     (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt);
-  const shelfBooks = books
-    .filter(
+  const allShelves = libraryShelves(books);
+  const shelvingBook = books.find((book) => book.id === shelvingId) ?? null;
+  const dialogShelves = libraryShelves([
+    { shelves: shelfChoices },
+    ...books,
+  ]).map((shelf) => shelf.name);
+  // A shelf that no longer exists (renamed away or emptied) stops filtering.
+  const activeShelf =
+    allShelves.find(
+      (shelf) => shelfFilter && sameShelf(shelf.name, shelfFilter),
+    )?.name ?? null;
+  const shelfBooks = sortBooks(
+    books.filter(
       (b) =>
-        filter === 'all' ||
-        (filter === 'reading'
-          ? b.lastRead > 0 && !isBookFinished(b)
-          : isBookFinished(b)),
-    )
-    .sort(byRecent);
+        (!activeShelf || onShelf(b, activeShelf)) &&
+        (filter === 'all' ||
+          (filter === 'reading'
+            ? b.lastRead > 0 && !isBookFinished(b)
+            : isBookFinished(b))),
+    ),
+    librarySort,
+  );
   const searchResults = query.trim()
     ? books
         .filter((b) =>
@@ -701,6 +844,16 @@ export default function Home() {
                 <DropdownMenuContent align="end" className="book-menu-list">
                   <DropdownMenuItem onClick={() => openEditor(book)}>
                     <Pencil size={15} /> Edit details
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setNewShelf('');
+                      setShelfError('');
+                      setShelfChoices(allShelves.map((shelf) => shelf.name));
+                      setShelvingId(book.id);
+                    }}
+                  >
+                    <BookMarked size={15} /> Shelves…
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => void download(book)}>
                     <Download size={15} /> Save or share
@@ -860,6 +1013,51 @@ export default function Home() {
                   <TabsTrigger value="reading">Reading</TabsTrigger>
                   <TabsTrigger value="finished">Finished</TabsTrigger>
                 </TabsList>
+                <div className="shelf-tools">
+                  {allShelves.length > 0 && (
+                    <fieldset className="shelf-chips">
+                      <legend className="sr-only">Show a shelf</legend>
+                      {allShelves.map(({ name, count }) => (
+                        <button
+                          key={name}
+                          aria-pressed={activeShelf === name}
+                          onClick={() =>
+                            setShelfFilter(activeShelf === name ? null : name)
+                          }
+                        >
+                          <BookMarked size={13} aria-hidden="true" />
+                          {name} <span className="count">{count}</span>
+                        </button>
+                      ))}
+                    </fieldset>
+                  )}
+                  <Select
+                    value={librarySort}
+                    onValueChange={(value) =>
+                      value && setLibrarySort(normalizeLibrarySort(value))
+                    }
+                  >
+                    <SelectTrigger
+                      className="library-sort"
+                      aria-label="Sort books"
+                    >
+                      <ArrowUpDown size={15} aria-hidden="true" />
+                      <SelectValue>
+                        {(value: string) =>
+                          LIBRARY_SORTS.find((sort) => sort.value === value)
+                            ?.label
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LIBRARY_SORTS.map((sort) => (
+                        <SelectItem key={sort.value} value={sort.value}>
+                          {sort.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {['all', 'reading', 'finished'].map((tab) => (
                 <TabsContent key={tab} value={tab}>
@@ -877,19 +1075,23 @@ export default function Home() {
                         </EmptyMedia>
                         <EmptyTitle>
                           <h3>
-                            {filter === 'reading'
-                              ? 'Your next chapter is waiting.'
-                              : filter === 'finished'
-                                ? 'A shelf for stories you’ve finished.'
-                                : 'Your next read belongs here.'}
+                            {activeShelf
+                              ? `Nothing from “${activeShelf}” here yet.`
+                              : filter === 'reading'
+                                ? 'Your next chapter is waiting.'
+                                : filter === 'finished'
+                                  ? 'A shelf for stories you’ve finished.'
+                                  : 'Your next read belongs here.'}
                           </h3>
                         </EmptyTitle>
                         <EmptyDescription>
-                          {filter === 'all'
-                            ? 'Import an EPUB, PDF, or text file to get started.'
-                            : filter === 'reading'
-                              ? 'Open a book from All books to start reading.'
-                              : 'Books appear here when you reach the final page.'}
+                          {activeShelf
+                            ? 'Try another tab, or tap the shelf again to see every book.'
+                            : filter === 'all'
+                              ? 'Import an EPUB, PDF, or text file to get started.'
+                              : filter === 'reading'
+                                ? 'Open a book from All books to start reading.'
+                                : 'Books appear here when you reach the final page.'}
                         </EmptyDescription>
                       </EmptyHeader>
                     </Empty>
@@ -905,7 +1107,10 @@ export default function Home() {
           {goalTiles(false)}
           <section className="goal-editor-card" aria-label="Daily goals">
             <span className="section-label">Daily goals</span>
-            <p>Set how much you’d like to read each day. Use 0 to turn a goal off.</p>
+            <p>
+              Set how much you’d like to read each day. Use 0 to turn a goal
+              off.
+            </p>
             <div className="goal-editor">
               <label>
                 Minutes a day
@@ -945,10 +1150,7 @@ export default function Home() {
               </label>
             </div>
           </section>
-          <section
-            className="reading-dashboard"
-            aria-labelledby="rhythm-title"
-          >
+          <section className="reading-dashboard" aria-labelledby="rhythm-title">
             <span className="section-label">Your reading rhythm</span>
             <h2 id="rhythm-title">Last seven days</h2>
             <div className="weekly-chart">
@@ -1098,6 +1300,92 @@ export default function Home() {
               </span>
             </button>
           </section>
+          <section className="settings-card" aria-labelledby="shelves-title">
+            <span className="section-label" id="shelves-title">
+              Shelves
+            </span>
+            {allShelves.length === 0 ? (
+              <p className="settings-empty">
+                Make a shelf from any book’s ⋯ menu, then choose Shelves.
+              </p>
+            ) : (
+              <ul className="manage-shelves">
+                {allShelves.map(({ name, count }) => (
+                  <li key={name}>
+                    {renamingShelf === name ? (
+                      <form
+                        className="shelf-rename"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void renameShelf(name);
+                        }}
+                      >
+                        <input
+                          aria-label={`New name for ${name}`}
+                          maxLength={MAX_SHELF_NAME}
+                          value={shelfRename}
+                          ref={(field) => {
+                            if (field && document.activeElement !== field)
+                              field.focus();
+                          }}
+                          onChange={(event) => {
+                            setShelfRename(event.target.value);
+                            setShelfError('');
+                          }}
+                        />
+                        <button type="submit" className="primary">
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => {
+                            setRenamingShelf(null);
+                            setShelfError('');
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        {shelfError && (
+                          <p role="alert" className="shelf-error">
+                            {shelfError}
+                          </p>
+                        )}
+                      </form>
+                    ) : (
+                      <>
+                        <BookMarked size={18} aria-hidden="true" />
+                        <span>
+                          <strong>{name}</strong>
+                          <small>
+                            {count} {count === 1 ? 'book' : 'books'}
+                          </small>
+                        </span>
+                        <button
+                          className="icon-button"
+                          aria-label={`Rename shelf ${name}`}
+                          onClick={() => {
+                            setShelfRename(name);
+                            setShelfError('');
+                            setRenamingShelf(name);
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          aria-label={`Delete shelf ${name}`}
+                          onClick={() => setDeletingShelf(name)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
           <footer>
             <HardDrive size={15} />
             <p>
@@ -1127,6 +1415,76 @@ export default function Home() {
           </button>
         ))}
       </nav>
+      <Dialog
+        open={!!shelvingBook}
+        onOpenChange={(open) => {
+          if (!open) setShelvingId(null);
+        }}
+      >
+        <DialogContent className="shelves-dialog">
+          <DialogTitle>Shelves</DialogTitle>
+          <DialogDescription>
+            Put “{shelvingBook?.title}” on as many shelves as you like.
+          </DialogDescription>
+          {dialogShelves.length > 0 && (
+            <ul className="shelf-choices">
+              {dialogShelves.map((name) => {
+                const on = !!shelvingBook && onShelf(shelvingBook, name);
+                return (
+                  <li key={name}>
+                    <button
+                      aria-pressed={on}
+                      onClick={() =>
+                        shelvingBook &&
+                        void setBookShelf(shelvingBook.id, name, !on)
+                      }
+                    >
+                      <span className="shelf-check" aria-hidden="true">
+                        {on && <Check size={15} />}
+                      </span>
+                      {name}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <form
+            className="new-shelf"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void addShelf();
+            }}
+          >
+            <input
+              aria-label="New shelf name"
+              placeholder={
+                dialogShelves.length ? 'New shelf' : 'Book club, Favorites…'
+              }
+              maxLength={MAX_SHELF_NAME}
+              value={newShelf}
+              onChange={(event) => {
+                setNewShelf(event.target.value);
+                setShelfError('');
+              }}
+            />
+            <button type="submit" className="primary">
+              <Plus size={16} /> Add
+            </button>
+          </form>
+          {shelfError && (
+            <p role="alert" className="shelf-error">
+              {shelfError}
+            </p>
+          )}
+          <button
+            className="text-button shelves-done"
+            onClick={() => setShelvingId(null)}
+          >
+            Done
+          </button>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={importOpen}
         onOpenChange={(open) => {
@@ -1382,6 +1740,31 @@ export default function Home() {
               }}
             >
               Restore and replace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={!!deletingShelf}
+        onOpenChange={(open) => {
+          if (!open) setDeletingShelf(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            Delete the “{deletingShelf}” shelf?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            The shelf goes away, but every book on it stays in your library with
+            its progress and highlights.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep shelf</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => deletingShelf && void deleteShelf(deletingShelf)}
+            >
+              Delete shelf
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

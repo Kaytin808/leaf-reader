@@ -13,6 +13,7 @@ export const BACKUP_SETTING_KEYS = [
   'leaf-app-theme',
   'leaf-reading-settings',
   'leaf-reading-goals',
+  'leaf-library-sort',
 ] as const;
 
 type BackupBook = {

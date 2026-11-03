@@ -475,15 +475,20 @@ test('full-library backup restores files, positions, highlights, statistics, cov
         note: 'Read this to mom\nsecond line',
       },
     ],
+    shelves: ['Book club', 'Favorites'],
   };
   await addBook(book, file);
+  const { BACKUP_SETTING_KEYS } = await import('../lib/library-backup');
+  assert.ok(BACKUP_SETTING_KEYS.includes('leaf-library-sort'));
   const backup = await createLibraryBackup('0.1.14', {
     'leaf-app-theme': 'dark',
     'leaf-reading-goals': '{"minutes":25,"pages":12}',
+    'leaf-library-sort': 'author',
   });
   const parsed = await inspectLibraryBackup(backup);
   assert.equal(parsed.manifest.books.length, 1);
   assert.equal(parsed.manifest.settings['leaf-app-theme'], 'dark');
+  assert.equal(parsed.manifest.settings['leaf-library-sort'], 'author');
   assert.equal(await parsed.entries[0].file.text(), 'A backup test book.');
   await replaceLibrary([]);
   assert.equal((await listBooks()).length, 0);
@@ -495,6 +500,7 @@ test('full-library backup restores files, positions, highlights, statistics, cov
   assert.equal(restored.highlights?.[0].id, 'highlight');
   // Highlight colors and notes come back exactly.
   assert.deepEqual(restored.highlights, book.highlights);
+  assert.deepEqual(restored.shelves, ['Book club', 'Favorites']);
   assert.equal(restored.readingActivity?.['2026-10-20'].pages, 4);
   assert.equal(restored.cover, book.cover);
   assert.equal(await (await getFile(restored.id)).text(), await file.text());

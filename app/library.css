@@ -182,9 +182,31 @@
 }
 .library-shell .shelf-heading {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   border: 0;
   padding: 0;
+}
+/* Sort (and later the shelf chips) sit on their own row under the tabs. */
+.library-shell .shelf-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.library-shell .library-sort {
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+}
+.library-shell .library-sort > svg:first-child {
+  color: var(--primary);
 }
 .library-shell .shelf-tabs {
   display: flex;
@@ -471,4 +493,201 @@
 /* Wins over the iPhone stylesheet's smaller bottom padding (loaded later). */
 main.library-shell {
   padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+/* Shelves dialog: tick shelves for one book, or add a new one. */
+.shelves-dialog .shelf-choices {
+  display: grid;
+  gap: 6px;
+  max-height: 40dvh;
+  margin: 4px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.shelves-dialog .shelf-choices button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 15px;
+  text-align: left;
+}
+.shelves-dialog .shelf-choices button[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.shelves-dialog .shelf-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--muted-foreground);
+  border-radius: 6px;
+}
+.shelves-dialog [aria-pressed='true'] .shelf-check {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.shelves-dialog .new-shelf {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.shelves-dialog .new-shelf input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 16px;
+}
+.shelves-dialog .new-shelf input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.shelves-dialog .new-shelf .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+}
+.shelves-dialog .shelf-error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 13px;
+}
+.shelves-dialog .shelves-done {
+  justify-self: end;
+  margin-top: 4px;
+}
+/* Shelf chips share the row with Sort; Sort stays on the right. */
+.library-shell .shelf-chips {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.library-shell .shelf-chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.library-shell .shelf-chips button > svg {
+  flex: none;
+  color: var(--primary);
+}
+.library-shell .shelf-chips .count {
+  opacity: 0.65;
+}
+.library-shell .shelf-chips button[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.library-shell .library-sort {
+  margin-left: auto;
+}
+/* Settings › Shelves */
+.settings-empty {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.manage-shelves {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.manage-shelves > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 6px 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+.manage-shelves > li > svg {
+  flex: none;
+  color: var(--primary);
+}
+.manage-shelves > li > span {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.manage-shelves strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.manage-shelves small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.shelf-rename {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.shelf-rename input {
+  flex: 1 1 140px;
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel, var(--background));
+  color: var(--foreground);
+  font-size: 16px;
+}
+.shelf-rename input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.shelf-rename .primary {
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 999px;
+}
+.shelf-rename .shelf-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--destructive);
+  font-size: 13px;
 }
