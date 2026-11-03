@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import {
   getFile,
   updateBook,
@@ -101,6 +102,7 @@ import {
   rememberHighlightColor,
   withNote,
 } from '@/lib/highlights';
+import { hapticTap } from '@/lib/haptics';
 import {
   beginHighlightVisit,
   finishHighlightVisit,
@@ -111,6 +113,9 @@ import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
   READING_PREFERENCES_VERSION,
+  PAGE_TURN_MS,
+  pageTurnFrames,
+  type ReadingPageTurn,
   LETTER_SPACING,
   LINE_HEIGHTS,
   PAGE_MARGINS,
@@ -216,6 +221,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   );
   const pageTurnsLockedRef = useRef(pageTurnsLocked);
   pageTurnsLockedRef.current = pageTurnsLocked;
+  const [pageTurn, setPageTurn] = useState<ReadingPageTurn>(
+    DEFAULT_READING_PREFERENCES.pageTurn,
+  );
+  const textTurn = useRef<-1 | 1 | null>(null);
+  const [haptics, setHaptics] = useState(DEFAULT_READING_PREFERENCES.haptics);
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsVisibleRef = useRef(true);
   const setReaderControls = useCallback((visible: boolean) => {
@@ -528,6 +538,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       setAlignment(saved.alignment);
       setBrightness(saved.brightness);
       setPageTurnsLocked(saved.pageTurnsLocked);
+      setPageTurn(saved.pageTurn);
+      setHaptics(saved.haptics);
     } catch {
       /* Optional preferences. */
     }
@@ -872,6 +884,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           alignment,
           brightness,
           pageTurnsLocked,
+          pageTurn,
+          haptics,
         }),
       );
     } catch {
@@ -886,6 +900,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     alignment,
     brightness,
     pageTurnsLocked,
+    pageTurn,
+    haptics,
   ]);
 
   useEffect(() => {
@@ -1140,6 +1156,35 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     };
   }, [book.format, recordHighlightVisitLocation, save]);
 
+  // Page-turn animation, skipped with Reduce Motion. EPUB.js measures the
+  // reading place from on-screen positions, so a slide must never run while
+  // a place is measured: turns finish any slide first, dim the new page while
+  // its place is read, and only then slide it in.
+  function pageTurnFramesFor(direction: -1 | 1) {
+    return matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? null
+      : pageTurnFrames(pageTurn, direction);
+  }
+  function finishPageAnimation() {
+    for (const animation of mount.current?.getAnimations() ?? [])
+      animation.finish();
+  }
+  function dimTurningPage(direction: -1 | 1) {
+    const frames = pageTurnFramesFor(direction);
+    if (frames && mount.current)
+      mount.current.style.opacity = String(frames[0].opacity);
+  }
+  function animatePageIn(direction: -1 | 1) {
+    const area = mount.current;
+    if (!area) return;
+    area.style.opacity = '';
+    const frames = pageTurnFramesFor(direction);
+    if (frames)
+      area.animate(frames, {
+        duration: PAGE_TURN_MS,
+        easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)',
+      });
+  }
   async function turn(direction: -1 | 1) {
     if (
       loading ||
@@ -1160,15 +1205,19 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     requestedCfi.current = undefined;
     screenAnchor.current = undefined;
     clearPageSlide(epubContents.current);
+    finishPageAnimation();
     if (book.format === 'epub') {
       setTurning(true);
       navigationPending.current = true;
       try {
+        dimTurningPage(direction);
         await (direction > 0
           ? rendition.current?.next()
           : rendition.current?.prev());
+        if (haptics) hapticTap('turn');
         if (rendition.current) {
           const location = await reportLatestLocation(rendition.current);
+          animatePageIn(direction);
           if (!recordHighlightVisitLocation(location)) {
             persistEpubLocation(location, undefined, direction > 0 ? 1 : 0);
             await writeQueue.current;
@@ -1177,14 +1226,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       } catch {
         setError('Could not turn this page. Try the chapter list.');
       } finally {
+        if (mount.current) mount.current.style.opacity = '';
         navigationPending.current = false;
         setTurning(false);
       }
     } else {
       if (direction > 0) pageTurnDelta.current++;
+      if (haptics) hapticTap('turn');
+      textTurn.current = direction;
       setPage((p) => Math.max(1, Math.min(total, p + direction)));
     }
   }
+  useLayoutEffect(() => {
+    if (textTurn.current === null) return;
+    animatePageIn(textTurn.current);
+    textTurn.current = null;
+  }, [page]); // oxlint-disable-line react-hooks/exhaustive-deps -- animates only after a text page turn
   const turnRef = useRef(turn);
   useEffect(() => {
     turnRef.current = turn;
@@ -1292,6 +1349,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           highlightStyles(color),
         );
       clearPendingHighlight();
+      if (haptics) hapticTap('saved');
       return savedHighlights.find(
         (item) => item.cfiRange === highlight.cfiRange,
       );
@@ -1402,6 +1460,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     setPanel(null);
     screenAnchor.current = undefined;
     clearPageSlide(epubContents.current);
+    finishPageAnimation();
     if (!temporaryHighlight) updateHighlightVisit(null);
     try {
       if (book.format === 'epub' && rendition.current) {
@@ -2168,6 +2227,37 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   spacing, and margins stay unchanged.
                 </p>
               )}
+              {book.format !== 'pdf' && (
+                <label htmlFor="page-turn">
+                  Page turn
+                  <Select
+                    value={pageTurn}
+                    onValueChange={(value) =>
+                      value && setPageTurn(value as ReadingPageTurn)
+                    }
+                  >
+                    <SelectTrigger id="page-turn">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="slide">Slide</SelectItem>
+                      <SelectItem value="fade">Fade</SelectItem>
+                      <SelectItem value="none">Instant</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              )}
+              <div className="setting-switch">
+                <span id="haptic-feedback">
+                  Haptic feedback
+                  <small>A light tap on page turns and saved highlights</small>
+                </span>
+                <Switch
+                  aria-labelledby="haptic-feedback"
+                  checked={haptics}
+                  onCheckedChange={(checked) => setHaptics(checked)}
+                />
+              </div>
               <div className="brightness-control">
                 <div>
                   <span>Page brightness</span>

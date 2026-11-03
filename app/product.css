@@ -1117,6 +1117,19 @@ footer span {
   display: grid;
   gap: 13px;
 }
+.setting-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 14px;
+}
+.setting-switch small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
 .brightness-control > div {
   display: flex;
   align-items: center;

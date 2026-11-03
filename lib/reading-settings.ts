@@ -4,6 +4,7 @@ export type ReadingFont = 'book' | 'classic' | 'sans' | 'accessible';
 export type ReadingSpacing = 'compact' | 'comfortable' | 'airy';
 export type ReadingMargin = 'narrow' | 'standard' | 'wide';
 export type ReadingAlignment = 'left' | 'justify';
+export type ReadingPageTurn = 'slide' | 'fade' | 'none';
 
 export type ReadingPreferences = {
   theme: ReadingTheme;
@@ -14,6 +15,8 @@ export type ReadingPreferences = {
   alignment: ReadingAlignment;
   brightness: number;
   pageTurnsLocked: boolean;
+  pageTurn: ReadingPageTurn;
+  haptics: boolean;
 };
 
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
@@ -25,6 +28,8 @@ export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
   alignment: 'left',
   brightness: 100,
   pageTurnsLocked: false,
+  pageTurn: 'slide',
+  haptics: true,
 };
 
 // Saved with the settings. Before version 2, Paper and Night just mirrored the
@@ -100,5 +105,24 @@ export function normalizeReadingPreferences(
       typeof input.pageTurnsLocked === 'boolean'
         ? input.pageTurnsLocked
         : false,
+    pageTurn: isOneOf(input.pageTurn, ['slide', 'fade', 'none'])
+      ? input.pageTurn
+      : 'slide',
+    haptics: typeof input.haptics === 'boolean' ? input.haptics : true,
   };
 }
+
+// The new page glides in from the side it was turned toward, or fades in.
+export function pageTurnFrames(
+  style: ReadingPageTurn,
+  direction: -1 | 1,
+): Keyframe[] | null {
+  if (style === 'slide')
+    return [
+      { opacity: 0.35, transform: `translateX(${direction * 28}px)` },
+      { opacity: 1, transform: 'translateX(0)' },
+    ];
+  if (style === 'fade') return [{ opacity: 0.2 }, { opacity: 1 }];
+  return null;
+}
+export const PAGE_TURN_MS = 220;
