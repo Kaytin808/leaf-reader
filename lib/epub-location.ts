@@ -330,6 +330,26 @@ export function alignTargetToPageTop(
   return false;
 }
 
+// Show the page holding the reader's line after anything that re-lays out the
+// book (rotation, Focus, text size, spacing, margins). New columns finish
+// laying out a frame later, so aim again once they settle; then start the page
+// at that line (a gap, or sliding this one page as the fallback).
+export async function displayAtLine(
+  reader: { display: (target?: string) => Promise<unknown> },
+  target: string,
+  contents: Iterable<ShiftableContents>,
+  lineToTop: boolean,
+) {
+  await reader.display(target);
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await reader.display(target);
+  if (!lineToTop) return;
+  // Redisplay either way: a failed attempt removes its gap again.
+  const aligned = alignTargetToPageTop(contents, target);
+  await reader.display(target);
+  if (!aligned) slidePageToTarget(contents, target);
+}
+
 type RestorableReader = LocationReader & {
   display: (target?: string) => Promise<unknown>;
   resize: (width: number, height: number, target?: string) => void;

@@ -1,18 +1,14 @@
 'use client';
 /* oxlint-disable react/react-compiler -- IndexedDB is an external async store; this app does not enable the React compiler. */
-import Link from 'next/link';
 import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Plus,
   ArrowUpRight,
-  Library,
   HardDrive,
-  FileText,
   Upload,
   Search,
-  ArrowRight,
   Bookmark,
   Download,
   Trash2,
@@ -20,13 +16,15 @@ import {
   X,
   Pencil,
   ImagePlus,
-  Clock3,
   Target,
   Flame,
-  BarChart3,
   DatabaseBackup,
   ArchiveRestore,
   Timer,
+  Ellipsis,
+  Library,
+  BarChart3,
+  Settings,
 } from 'lucide-react';
 import {
   Dialog,
@@ -51,6 +49,12 @@ import {
   EmptyMedia,
 } from '@/components/ui/empty';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
 import Reader from '@/components/reader';
 import {
@@ -58,9 +62,7 @@ import {
   addBook,
   deleteBook,
   getFile,
-  formatBytes,
   errorMessage,
-  positionLabel,
   isBookFinished,
   updateBook,
   type LibraryBook,
@@ -85,7 +87,7 @@ import {
 } from '@/lib/library-backup';
 import packageInfo from '@/package.json';
 import { inspectFile, METADATA_VERSION, SAMPLE_TEXT } from '@/lib/book-files';
-import { ThemeButtons } from '@/components/theme-provider';
+import { ThemeList, ThemePicker } from '@/components/theme-provider';
 import {
   coverQuery,
   enrichCover,
@@ -97,6 +99,14 @@ import {
   chapterIndex,
   repairChapterLabel,
 } from '@/lib/chapters';
+
+type LibraryView = 'library' | 'goals' | 'search' | 'settings';
+
+function greeting(hour = new Date().getHours()) {
+  if (hour < 5 || hour >= 18) return 'Good evening';
+  if (hour < 12) return 'Good morning';
+  return 'Good afternoon';
+}
 
 export default function Home() {
   const [books, setBooks] = useState<LibraryBook[]>([]);
@@ -127,6 +137,7 @@ export default function Home() {
   const backupInput = useRef<HTMLInputElement>(null);
   const [goals, setGoals] = useState<ReadingGoals>(DEFAULT_READING_GOALS);
   const [goalsReady, setGoalsReady] = useState(false);
+  const [view, setView] = useState<LibraryView>('library');
   const [restoreCandidate, setRestoreCandidate] = useState<{
     file: File;
     manifest: LibraryBackupManifest;
@@ -546,18 +557,26 @@ export default function Home() {
         }}
       />
     );
-  const filtered = books
+  const byRecent = (a: LibraryBook, b: LibraryBook) =>
+    (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt);
+  const shelfBooks = books
     .filter(
       (b) =>
-        `${b.title} ${b.author} ${b.filename}`
-          .toLowerCase()
-          .includes(query.toLowerCase()) &&
-        (filter === 'all' ||
-          (filter === 'reading'
-            ? b.lastRead > 0 && !isBookFinished(b)
-            : isBookFinished(b))),
+        filter === 'all' ||
+        (filter === 'reading'
+          ? b.lastRead > 0 && !isBookFinished(b)
+          : isBookFinished(b)),
     )
-    .sort((a, b) => (b.lastRead || b.addedAt) - (a.lastRead || a.addedAt));
+    .sort(byRecent);
+  const searchResults = query.trim()
+    ? books
+        .filter((b) =>
+          `${b.title} ${b.author} ${b.filename}`
+            .toLowerCase()
+            .includes(query.trim().toLowerCase()),
+        )
+        .sort(byRecent)
+    : [];
   const readingActivity = combineReadingActivity(
     books.map((book) => book.readingActivity),
   );
@@ -574,60 +593,166 @@ export default function Home() {
     .sort(
       (a, b) => (b.completedAt || b.lastRead) - (a.completedAt || a.lastRead),
     );
+  function openView(next: LibraryView) {
+    setView(next);
+    window.scrollTo(0, 0);
+  }
+  // Today's streak, minutes and pages. On the Library tab they open Goals.
+  function goalTiles(openGoals: boolean) {
+    const tiles = [
+      {
+        key: 'streak',
+        icon: <Flame size={17} />,
+        value: streak,
+        label: 'day streak',
+      },
+      {
+        key: 'minutes',
+        icon: <Timer size={17} />,
+        value: Math.floor(todayActivity.readingTimeMs / 60_000),
+        label: `of ${goals.minutes} min`,
+        progress: goals.minutes
+          ? Math.min(
+              100,
+              (todayActivity.readingTimeMs / 60_000 / goals.minutes) * 100,
+            )
+          : 100,
+      },
+      {
+        key: 'pages',
+        icon: <Target size={17} />,
+        value: todayActivity.pages,
+        label: `of ${goals.pages} pages`,
+        progress: goals.pages
+          ? Math.min(100, (todayActivity.pages / goals.pages) * 100)
+          : 100,
+      },
+    ];
+    return (
+      <section className="goal-tiles" aria-label="Today’s reading">
+        {tiles.map((tile) => {
+          const content = (
+            <>
+              {tile.icon}
+              <strong>{tile.value}</strong>
+              <span>{tile.label}</span>
+              {tile.progress !== undefined && (
+                <Progress
+                  value={tile.progress}
+                  aria-label={`${tile.label} goal progress`}
+                />
+              )}
+            </>
+          );
+          return openGoals ? (
+            <button
+              key={tile.key}
+              className="goal-tile"
+              onClick={() => openView('goals')}
+              aria-label={`${tile.value} ${tile.label}. Open reading goals`}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={tile.key} className="goal-tile">
+              {content}
+            </div>
+          );
+        })}
+      </section>
+    );
+  }
+  function bookGrid(list: LibraryBook[]) {
+    return (
+      <div className="book-grid">
+        {list.map((book) => (
+          <article className="book-card" key={book.id}>
+            <button
+              className="book-open"
+              onClick={() => setActiveId(book.id)}
+              aria-label={`Read ${book.title}`}
+            >
+              <BookCover book={book} />
+            </button>
+            <div className="book-card-text">
+              <div>
+                <h3 title={book.title}>{book.title}</h3>
+                <p>
+                  {isBookFinished(book)
+                    ? 'Finished'
+                    : book.lastRead
+                      ? `${book.position.progress}% read`
+                      : 'Not started'}
+                  {book.bookmarks.length > 0 && (
+                    <span className="book-card-marks">
+                      <Bookmark size={11} />
+                      {book.bookmarks.length}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="icon-button book-menu"
+                  aria-label={`Options for ${book.title}`}
+                >
+                  <Ellipsis size={17} />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="book-menu-list">
+                  <DropdownMenuItem onClick={() => openEditor(book)}>
+                    <Pencil size={15} /> Edit details
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void download(book)}>
+                    <Download size={15} /> Save or share
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setRemove(book)}
+                  >
+                    <Trash2 size={15} /> Remove
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            {book.lastRead > 0 && !isBookFinished(book) && (
+              <Progress
+                className="book-card-progress"
+                value={book.position.progress}
+                aria-label={`${book.title} reading progress`}
+              />
+            )}
+          </article>
+        ))}
+      </div>
+    );
+  }
   return (
-    <main className="library-shell">
+    <main className={`library-shell library-view-${view}`}>
       <header className="masthead">
-        <Link className="wordmark" href="/">
-          <BookOpen size={27} /> Kayla’s Library
-        </Link>
+        <div className="masthead-title">
+          <p className="library-greeting">{greeting()}, Kayla</p>
+          <h1 className="wordmark">
+            {view === 'library'
+              ? 'Your library'
+              : view === 'goals'
+                ? 'Reading goals'
+                : view === 'search'
+                  ? 'Search'
+                  : 'Settings'}
+          </h1>
+        </div>
         <div className="masthead-actions">
-          <span className="local-badge">
-            <span /> Your personal reading space
-          </span>
-          <ThemeButtons />
+          <ThemePicker />
         </div>
       </header>
-      <section className="library-heading">
-        <div>
-          <p className="eyebrow">A LITTLE SPACE FOR GOOD BOOKS</p>
-          <h1>Your library.</h1>
-          <p>All your books. Right where you left them.</p>
-        </div>
-        <div className="library-actions">
-          <button
-            className="secondary-button"
-            onClick={() => void exportBackup()}
-            disabled={!ready || busy}
-          >
-            <DatabaseBackup size={18} /> Back up
-          </button>
-          <button
-            className="secondary-button"
-            onClick={() => backupInput.current?.click()}
-            disabled={!ready || busy}
-          >
-            <ArchiveRestore size={18} /> Restore
-          </button>
-          <input
-            ref={backupInput}
-            type="file"
-            className="sr-only"
-            accept=".zip,application/zip,application/x-zip-compressed"
-            aria-label="Choose a Kayla's Library backup"
-            onChange={(event) => void chooseBackup(event.target.files?.[0])}
-          />
-          <button
-            className="primary"
-            onClick={() => {
-              setFailures([]);
-              setImportOpen(true);
-            }}
-            disabled={!ready || busy}
-          >
-            <Plus size={19} /> Import books
-          </button>
-        </div>
-      </section>
+      <input
+        ref={backupInput}
+        type="file"
+        className="sr-only"
+        accept=".zip,application/zip,application/x-zip-compressed"
+        aria-label="Choose a Kayla's Library backup"
+        onChange={(event) => void chooseBackup(event.target.files?.[0])}
+      />
       {notice && (
         <output className="library-notice">
           <span>{notice}</span>
@@ -640,35 +765,153 @@ export default function Home() {
           </button>
         </output>
       )}
-      {ready && (
-        <section
-          className="reading-dashboard"
-          aria-labelledby="reading-goals-title"
-        >
-          <div className="reading-dashboard-heading">
-            <div>
-              <span className="section-label">YOUR READING RHYTHM</span>
-              <h2 id="reading-goals-title">Reading goals</h2>
-            </div>
-            <div className="streak-badge">
-              <Flame size={20} />
-              <strong>{streak}</strong>
-              <span>day streak</span>
-            </div>
+      {view === 'library' && (
+        <>
+          <div className="library-actions">
+            <button
+              className="primary"
+              onClick={() => {
+                setFailures([]);
+                setImportOpen(true);
+              }}
+              disabled={!ready || busy}
+            >
+              <Plus size={19} /> Import books
+            </button>
           </div>
-          <div className="goal-grid">
-            <article className="goal-card">
-              <div className="goal-card-title">
-                <Timer size={19} /> Minutes today
+          {recent ? (
+            <section
+              className="continue-panel"
+              aria-labelledby="continue-title"
+            >
+              <button
+                className="continue-cover"
+                onClick={() => setActiveId(recent.id)}
+                aria-label={`Continue reading ${recent.title}`}
+              >
+                <BookCover book={recent} />
+              </button>
+              <div className="continue-copy">
+                <span className="section-label">Continue reading</span>
+                <h2 id="continue-title">{recent.title}</h2>
+                <p>
+                  {recent.author}
+                  {recent.position.label ? ` · ${recent.position.label}` : ''}
+                </p>
+                <div className="continue-progress">
+                  <Progress
+                    value={recent.position.progress}
+                    aria-label="Book progress"
+                  />
+                  <span>
+                    {recent.position.progress}%
+                    {estimatedTimeRemainingStatus(
+                      recent.position.progress,
+                      recent.readingTimeMs,
+                    )
+                      ? ` · ${estimatedTimeRemainingStatus(
+                          recent.position.progress,
+                          recent.readingTimeMs,
+                        ).toLowerCase()}`
+                      : ''}
+                  </span>
+                </div>
+                <button
+                  className="light-button"
+                  onClick={() => setActiveId(recent.id)}
+                >
+                  <BookOpen size={17} /> Continue
+                </button>
               </div>
-              <strong>
-                {Math.floor(todayActivity.readingTimeMs / 60_000)}
-              </strong>
-              <span>of</span>
+            </section>
+          ) : (
+            <section className="welcome-panel">
+              <div>
+                <span className="section-label">Make yourself at home</span>
+                <h2>A new chapter starts here.</h2>
+                <p>
+                  Bring a book you love, find a comfortable spot, and pick up
+                  where you left off.
+                </p>
+                <button
+                  className="light-button"
+                  onClick={() => setImportOpen(true)}
+                >
+                  Open your first book <ArrowUpRight size={18} />
+                </button>
+                <button
+                  className="sample-link"
+                  disabled={busy || !ready}
+                  onClick={() => void sample()}
+                >
+                  {busy ? 'Opening…' : 'Or try a short sample'}
+                </button>
+              </div>
+            </section>
+          )}
+          {ready && goalTiles(true)}
+          <section className="shelf">
+            <Tabs value={filter} onValueChange={(v) => setFilter(String(v))}>
+              <div className="shelf-heading">
+                <TabsList variant="line" className="shelf-tabs">
+                  <TabsTrigger value="all">
+                    All books <span className="count">{books.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="reading">Reading</TabsTrigger>
+                  <TabsTrigger value="finished">Finished</TabsTrigger>
+                </TabsList>
+              </div>
+              {['all', 'reading', 'finished'].map((tab) => (
+                <TabsContent key={tab} value={tab}>
+                  {!ready ? (
+                    <output className="empty-library">
+                      <LoaderCircle className="spin" /> Opening your library…
+                    </output>
+                  ) : shelfBooks.length ? (
+                    bookGrid(shelfBooks)
+                  ) : (
+                    <Empty className="empty-library">
+                      <EmptyHeader>
+                        <EmptyMedia>
+                          <BookOpen size={35} />
+                        </EmptyMedia>
+                        <EmptyTitle>
+                          <h3>
+                            {filter === 'reading'
+                              ? 'Your next chapter is waiting.'
+                              : filter === 'finished'
+                                ? 'A shelf for stories you’ve finished.'
+                                : 'Your next read belongs here.'}
+                          </h3>
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          {filter === 'all'
+                            ? 'Import an EPUB, PDF, or text file to get started.'
+                            : filter === 'reading'
+                              ? 'Open a book from All books to start reading.'
+                              : 'Books appear here when you reach the final page.'}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
+                </TabsContent>
+              ))}
+            </Tabs>
+          </section>
+        </>
+      )}
+      {view === 'goals' && ready && (
+        <>
+          {goalTiles(false)}
+          <section className="goal-editor-card" aria-label="Daily goals">
+            <span className="section-label">Daily goals</span>
+            <p>Set how much you’d like to read each day. Use 0 to turn a goal off.</p>
+            <div className="goal-editor">
               <label>
+                Minutes a day
                 <input
-                  aria-label="Daily minute goal"
                   type="number"
+                  inputMode="numeric"
                   min="0"
                   max="1440"
                   value={goals.minutes}
@@ -681,31 +924,12 @@ export default function Home() {
                     )
                   }
                 />
-                min
               </label>
-              <Progress
-                value={
-                  goals.minutes
-                    ? Math.min(
-                        100,
-                        (todayActivity.readingTimeMs / 60_000 / goals.minutes) *
-                          100,
-                      )
-                    : 100
-                }
-                aria-label="Daily minute goal progress"
-              />
-            </article>
-            <article className="goal-card">
-              <div className="goal-card-title">
-                <Target size={19} /> Pages today
-              </div>
-              <strong>{todayActivity.pages}</strong>
-              <span>of</span>
               <label>
+                Pages a day
                 <input
-                  aria-label="Daily page goal"
                   type="number"
+                  inputMode="numeric"
                   min="0"
                   max="1000"
                   value={goals.pages}
@@ -718,341 +942,191 @@ export default function Home() {
                     )
                   }
                 />
-                pages
               </label>
-              <Progress
-                value={
-                  goals.pages
-                    ? Math.min(100, (todayActivity.pages / goals.pages) * 100)
-                    : 100
-                }
-                aria-label="Daily page goal progress"
-              />
-            </article>
-            <article className="weekly-card">
-              <div className="goal-card-title">
-                <BarChart3 size={19} /> Last seven days
-              </div>
-              <div className="weekly-chart">
-                {week.map((day) => (
-                  <div className="week-column" key={day.key}>
-                    <div
-                      className="week-bars"
-                      title={`${day.minutes} min · ${day.pages} pages`}
-                    >
-                      <span
-                        className="minutes-bar"
-                        style={{
-                          height: `${Math.max(day.minutes ? 8 : 0, (day.minutes / maxWeekMinutes) * 100)}%`,
-                        }}
-                      />
-                      <span
-                        className="pages-bar"
-                        style={{
-                          height: `${Math.max(day.pages ? 8 : 0, (day.pages / maxWeekPages) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <small>{day.label.slice(0, 2)}</small>
-                  </div>
-                ))}
-              </div>
-              <p>
-                <span className="chart-key minutes-key" /> Minutes{' '}
-                <span className="chart-key pages-key" /> Pages
-              </p>
-            </article>
-          </div>
-          {finishedBooks.length > 0 && (
-            <div className="finished-history">
-              <h3>Finished-book history</h3>
-              <div>
-                {finishedBooks.slice(0, 6).map((book) => (
-                  <button key={book.id} onClick={() => setActiveId(book.id)}>
-                    <BookCover book={book} />
-                    <span>
-                      <strong>{book.title}</strong>
-                      <small>
-                        {book.completedAt
-                          ? new Intl.DateTimeFormat(undefined, {
-                              dateStyle: 'medium',
-                            }).format(book.completedAt)
-                          : 'Finished'}
-                        {' · '}
-                        {readingTimeStatus(true, book.finishedReadingTimeMs)}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              </div>
             </div>
+          </section>
+          <section
+            className="reading-dashboard"
+            aria-labelledby="rhythm-title"
+          >
+            <span className="section-label">Your reading rhythm</span>
+            <h2 id="rhythm-title">Last seven days</h2>
+            <div className="weekly-chart">
+              {week.map((day) => (
+                <div className="week-column" key={day.key}>
+                  <div
+                    className="week-bars"
+                    title={`${day.minutes} min · ${day.pages} pages`}
+                  >
+                    <span
+                      className="minutes-bar"
+                      style={{
+                        height: `${Math.max(day.minutes ? 8 : 0, (day.minutes / maxWeekMinutes) * 100)}%`,
+                      }}
+                    />
+                    <span
+                      className="pages-bar"
+                      style={{
+                        height: `${Math.max(day.pages ? 8 : 0, (day.pages / maxWeekPages) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <small>{day.label.slice(0, 2)}</small>
+                </div>
+              ))}
+            </div>
+            <p className="chart-legend">
+              <span className="chart-key minutes-key" /> Minutes{' '}
+              <span className="chart-key pages-key" /> Pages
+            </p>
+            {finishedBooks.length > 0 && (
+              <div className="finished-history">
+                <h3>Finished books</h3>
+                <div>
+                  {finishedBooks.slice(0, 6).map((book) => (
+                    <button key={book.id} onClick={() => setActiveId(book.id)}>
+                      <BookCover book={book} />
+                      <span>
+                        <strong>{book.title}</strong>
+                        <small>
+                          {book.completedAt
+                            ? new Intl.DateTimeFormat(undefined, {
+                                dateStyle: 'medium',
+                              }).format(book.completedAt)
+                            : 'Finished'}
+                          {' · '}
+                          {readingTimeStatus(true, book.finishedReadingTimeMs)}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+      {view === 'search' && (
+        <section className="search-view">
+          <label className="library-search">
+            <Search size={17} />
+            <input
+              aria-label="Search your library"
+              placeholder="Title, author, or file name"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button
+                className="icon-button"
+                aria-label="Clear search"
+                onClick={() => setQuery('')}
+              >
+                <X size={16} />
+              </button>
+            )}
+          </label>
+          {query.trim() ? (
+            searchResults.length ? (
+              <>
+                <p className="search-count">
+                  {searchResults.length}{' '}
+                  {searchResults.length === 1 ? 'book' : 'books'} found
+                </p>
+                {bookGrid(searchResults)}
+              </>
+            ) : (
+              <p className="search-hint">
+                No books match “{query.trim()}”. Try a different title or
+                author.
+              </p>
+            )
+          ) : (
+            <p className="search-hint">
+              Search all {books.length} {books.length === 1 ? 'book' : 'books'}{' '}
+              by title, author, or file name.
+            </p>
           )}
         </section>
       )}
-      {recent ? (
-        <section className="continue-panel">
-          <div className="continue-copy">
-            <span className="section-label">BACK TO YOUR STORY</span>
-            <h2>{recent.title}</h2>
-            <p>{recent.author}</p>
-            <div className="continue-progress">
-              <Progress
-                value={recent.position.progress}
-                aria-label="Book progress"
-              />
-              <span>
-                {recent.position.progress}% · {positionLabel(recent.position)}
-              </span>
-              <span className="continue-reading-time">
-                <Clock3 size={13} />
-                {readingTimeStatus(
-                  isBookFinished(recent),
-                  isBookFinished(recent)
-                    ? recent.finishedReadingTimeMs
-                    : recent.readingTimeMs,
-                )}
-              </span>
-              {estimatedTimeRemainingStatus(
-                recent.position.progress,
-                recent.readingTimeMs,
-              ) && (
-                <span className="continue-reading-time">
-                  <Timer size={13} />
-                  {estimatedTimeRemainingStatus(
-                    recent.position.progress,
-                    recent.readingTimeMs,
-                  )}
-                </span>
-              )}
-            </div>
+      {view === 'settings' && (
+        <>
+          <section className="settings-card" aria-labelledby="theme-title">
+            <span className="section-label" id="theme-title">
+              Theme
+            </span>
+            <ThemeList />
+          </section>
+          <section className="settings-card" aria-labelledby="books-title">
+            <span className="section-label" id="books-title">
+              Your books
+            </span>
             <button
-              className="light-button"
-              onClick={() => setActiveId(recent.id)}
+              className="settings-row"
+              onClick={() => {
+                setFailures([]);
+                setImportOpen(true);
+              }}
+              disabled={!ready || busy}
             >
-              Continue reading <ArrowRight size={18} />
+              <Plus size={19} />
+              <span>
+                <strong>Import books</strong>
+                <small>Add EPUB, PDF, or text files</small>
+              </span>
             </button>
-          </div>
-          <div className="continue-cover">
-            <BookCover book={recent} />
-          </div>
-        </section>
-      ) : (
-        <section className="welcome-panel">
-          <div>
-            <span className="section-label">MAKE YOURSELF AT HOME</span>
-            <h2>
-              A new chapter
-              <br />
-              starts here.
-            </h2>
+            <button
+              className="settings-row"
+              onClick={() => void exportBackup()}
+              disabled={!ready || busy}
+            >
+              <DatabaseBackup size={19} />
+              <span>
+                <strong>Back up library</strong>
+                <small>Save books, progress, and settings in one file</small>
+              </span>
+            </button>
+            <button
+              className="settings-row"
+              onClick={() => backupInput.current?.click()}
+              disabled={!ready || busy}
+            >
+              <ArchiveRestore size={19} />
+              <span>
+                <strong>Restore a backup</strong>
+                <small>Replace this library with a saved backup</small>
+              </span>
+            </button>
+          </section>
+          <footer>
+            <HardDrive size={15} />
             <p>
-              Bring a book you love, find a comfortable spot,
-              <br className="desktop-only" /> and pick up where you left off.
+              Saved on this device. Use Back up before reinstalling or changing
+              IPA builds so your books and progress can be restored.
             </p>
-            <button
-              className="light-button"
-              onClick={() => setImportOpen(true)}
-            >
-              Open your first book <ArrowUpRight size={18} />
-            </button>
-            <button
-              className="sample-link"
-              disabled={busy || !ready}
-              onClick={() => void sample()}
-            >
-              {busy ? 'Opening…' : 'Or try a short sample'}
-            </button>
-          </div>
-          <div className="format-list">
-            <div>
-              <BookOpen />
-              <span>
-                EPUB<small>Made for comfortable reading</small>
-              </span>
-            </div>
-            <div>
-              <FileText />
-              <span>
-                PDF<small>Every page, just as it was printed</small>
-              </span>
-            </div>
-            <div>
-              <FileText />
-              <span>
-                TXT<small>Simple words. No distractions.</small>
-              </span>
-            </div>
-          </div>
-        </section>
+            <p className="app-version">Kayla’s Library {packageInfo.version}</p>
+          </footer>
+        </>
       )}
-      <section className="shelf">
-        <Tabs value={filter} onValueChange={(v) => setFilter(String(v))}>
-          <div className="shelf-heading">
-            <TabsList variant="line" className="shelf-tabs">
-              <TabsTrigger value="all">
-                <Library size={17} /> All books{' '}
-                <span className="count">{books.length}</span>
-              </TabsTrigger>
-              <TabsTrigger value="reading">Reading</TabsTrigger>
-              <TabsTrigger value="finished">Finished</TabsTrigger>
-            </TabsList>
-            <label className="library-search">
-              <Search size={17} />
-              <input
-                aria-label="Search your library"
-                placeholder="Find a book…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-          </div>
-          {['all', 'reading', 'finished'].map((tab) => (
-            <TabsContent key={tab} value={tab}>
-              {!ready ? (
-                <output className="empty-library">
-                  <LoaderCircle className="spin" /> Opening your library…
-                </output>
-              ) : filtered.length ? (
-                <div className="book-grid">
-                  {filtered.map((book) => (
-                    <article className="book-card" key={book.id}>
-                      <button
-                        className="book-open"
-                        onClick={() => setActiveId(book.id)}
-                        aria-label={`Read ${book.title}`}
-                      >
-                        <BookCover book={book} />
-                        <h3>{book.title}</h3>
-                        <p>{book.author}</p>
-                      </button>
-                      <div className="card-progress">
-                        <Progress
-                          value={
-                            isBookFinished(book) ? 100 : book.position.progress
-                          }
-                          aria-label={`${book.title} reading progress`}
-                        />
-                        <span>
-                          {isBookFinished(book)
-                            ? 'Finished'
-                            : book.lastRead
-                              ? `${book.position.progress}% read`
-                              : 'Not started'}
-                          {book.bookmarks.length > 0 && (
-                            <span>
-                              <Bookmark size={12} />
-                              {book.bookmarks.length}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      {book.lastRead > 0 && (
-                        <>
-                          <p className="card-reading-time">
-                            <Clock3 size={12} />
-                            {readingTimeStatus(
-                              isBookFinished(book),
-                              isBookFinished(book)
-                                ? book.finishedReadingTimeMs
-                                : book.readingTimeMs,
-                            )}
-                          </p>
-                          {!isBookFinished(book) &&
-                            estimatedTimeRemainingStatus(
-                              book.position.progress,
-                              book.readingTimeMs,
-                            ) && (
-                              <p className="card-reading-time">
-                                <Timer size={12} />
-                                {estimatedTimeRemainingStatus(
-                                  book.position.progress,
-                                  book.readingTimeMs,
-                                )}
-                              </p>
-                            )}
-                          <p
-                            className="card-location"
-                            title={positionLabel(book.position)}
-                          >
-                            {positionLabel(book.position)}
-                          </p>
-                        </>
-                      )}
-                      <div className="book-card-footer">
-                        <span>
-                          {book.format.toUpperCase()} · {formatBytes(book.size)}
-                        </span>
-                        <div>
-                          <button
-                            className="icon-button"
-                            title="Edit book details"
-                            aria-label={'Edit ' + book.title}
-                            onClick={() => openEditor(book)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            title="Save or share original"
-                            aria-label={`Export ${book.title}`}
-                            onClick={() => void download(book)}
-                          >
-                            <Download size={15} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            title="Remove from library"
-                            aria-label={`Remove ${book.title}`}
-                            onClick={() => setRemove(book)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <Empty className="empty-library">
-                  <EmptyHeader>
-                    <EmptyMedia>
-                      <BookOpen size={35} />
-                    </EmptyMedia>
-                    <EmptyTitle>
-                      <h3>
-                        {query
-                          ? 'No books found.'
-                          : filter === 'reading'
-                            ? 'Your next chapter is waiting.'
-                            : filter === 'finished'
-                              ? 'A shelf for stories you’ve finished.'
-                              : 'Your next read belongs here.'}
-                      </h3>
-                    </EmptyTitle>
-                    <EmptyDescription>
-                      {query
-                        ? 'Try a different title or author.'
-                        : filter === 'all'
-                          ? 'Import an EPUB, PDF, or text file to get started.'
-                          : filter === 'reading'
-                            ? 'Open a book from All books to start reading.'
-                            : 'Books appear here when you reach the final page.'}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </TabsContent>
-          ))}
-        </Tabs>
-      </section>
-      <footer>
-        <HardDrive size={15} />
-        <p>
-          Saved on this device. Use Back up before reinstalling or changing IPA
-          builds so your books and progress can be restored.
-        </p>
-        <span>ONE PAGE AT A TIME.</span>
-      </footer>
+      <nav className="tab-bar" aria-label="Sections">
+        {(
+          [
+            ['library', Library, 'Library'],
+            ['goals', BarChart3, 'Goals'],
+            ['search', Search, 'Search'],
+            ['settings', Settings, 'Settings'],
+          ] as const
+        ).map(([id, Icon, label]) => (
+          <button
+            key={id}
+            aria-current={view === id ? 'page' : undefined}
+            onClick={() => openView(id)}
+          >
+            <Icon size={23} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
       <Dialog
         open={importOpen}
         onOpenChange={(open) => {

@@ -2,6 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 import './product.css';
 import './appearance.css';
+import './themes.css';
+import './library.css';
+import './reader-chrome.css';
 import { ThemeProvider } from '@/components/theme-provider';
 
 export const metadata: Metadata = {

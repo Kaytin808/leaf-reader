@@ -1,0 +1,73 @@
+/* Reader toolbars (every theme): the chapter name as a small accent label,
+   the page number in bold, calmer details and round page-turn buttons. In
+   dark themes the bars sit a shade off the page so they read as toolbars. */
+.dark .reader-match .reader-header,
+.dark .reader-match .reader-bottom {
+  background: var(--background);
+}
+.reader .reader-header .icon-button,
+.reader .reader-header .theme-picker-button {
+  border-radius: 12px;
+}
+.reader-bottom [data-slot='progress-indicator'] {
+  background: var(--primary);
+}
+.reader-bottom [data-slot='progress-track'] {
+  height: 3px;
+}
+.reader .reader-navigation > .icon-button {
+  width: 46px;
+  min-width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.reading-position > span:first-child:not(.epub-page-counter) {
+  display: block;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+.reading-position .epub-page-counter {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+.reading-position small {
+  opacity: 1;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+.reader-match .reading-position small {
+  color: color-mix(in srgb, var(--page-fg) 62%, transparent);
+}
+.reader .reader-chapter-navigation button {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.reader .reader-chapter-navigation > span {
+  opacity: 0.7;
+}
+.reader .saved-places-button {
+  min-height: 38px;
+  margin-top: 4px;
+  padding: 6px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 999px;
+  opacity: 0.9;
+}
+.reader .reader-chapter-navigation button {
+  flex: none;
+  white-space: nowrap;
+}
+.reader .reader-chapter-navigation > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}

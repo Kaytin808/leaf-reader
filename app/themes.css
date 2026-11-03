@@ -1,0 +1,213 @@
+/* Theme picker (every theme). */
+.theme-picker-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.reader-tools .theme-picker-button {
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.reader-tools .theme-picker-button span {
+  display: none;
+}
+.theme-list {
+  display: grid;
+  gap: 8px;
+}
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+}
+.theme-option[aria-pressed='true'] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.theme-option > svg {
+  color: var(--primary);
+}
+.theme-swatch {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  width: 64px;
+  height: 44px;
+  padding: 6px;
+  border: 1px solid;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+.theme-swatch > span:first-child {
+  flex: 1;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 15px;
+}
+.theme-swatch > span:last-child {
+  width: 9px;
+  height: 100%;
+  border-radius: 5px;
+}
+.theme-option-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.theme-option-text strong {
+  font-size: 15px;
+}
+.theme-option-text small {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+/* Reading page that matches the theme (every theme). */
+.reader-match {
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+.reader-match .reader-book-title p {
+  color: var(--muted-foreground);
+}
+.dark .reader-match .pdf-area {
+  background: var(--background) !important;
+}
+
+/* Dark themes: fonts and the places that used fixed colors. */
+.dark body {
+  font-family: var(--font-ui);
+}
+.dark .wordmark,
+.dark .library-heading h1,
+.dark .reading-dashboard h2,
+.dark .continue-copy h2,
+.dark .welcome-panel h2,
+.dark .finished-history h3,
+.dark .reader-book-title h1,
+.dark [data-slot='dialog-title'] {
+  font-family: var(--font-display);
+}
+.dark .eyebrow,
+.dark .section-label,
+.dark .reading-dashboard .section-label {
+  color: var(--primary);
+}
+.dark .streak-badge {
+  color: var(--primary);
+}
+.dark .welcome-panel,
+.dark .continue-panel {
+  background: var(--panel);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+.dark .continue-copy > p,
+.dark .welcome-panel p,
+.dark .continue-progress > span,
+.dark .sample-link {
+  color: var(--muted-foreground);
+}
+.dark .continue-progress > .continue-reading-time {
+  color: var(--primary);
+}
+.dark .continue-progress [data-slot='progress-track'] {
+  background: var(--border);
+}
+.dark .continue-progress [data-slot='progress-indicator'] {
+  background: var(--primary);
+}
+.dark .light-button {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.dark .primary {
+  color: var(--primary-foreground);
+  box-shadow: none;
+}
+.dark .goal-card,
+.dark .weekly-card,
+.dark .reading-dashboard {
+  background: var(--panel);
+}
+.dark .library-notice {
+  background: var(--panel);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+.dark .import-drop {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.dark .import-drop.dragging {
+  background: var(--muted);
+  border-color: var(--primary);
+}
+.dark .import-drop p,
+.dark .import-drop > svg {
+  color: var(--muted-foreground);
+}
+.dark .book-cover,
+.dark .book-cover img {
+  background: var(--muted);
+  border-color: var(--border);
+}
+.dark .image-zoom-dialog .zoom-viewport {
+  background: var(--muted);
+}
+.dark .is-marked {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.dark .reader-focus-lock.is-marked {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.dark .reader-header {
+  border-bottom-color: var(--border);
+}
+.dark .reader-bottom {
+  border-top-color: var(--border);
+}
+.dark .chapter-list > button[aria-current='location'],
+.dark .card-reading-time {
+  color: var(--primary);
+}
+.dark .pages-bar,
+.dark .pages-key {
+  background: var(--muted-foreground);
+}
+.dark .primary:hover {
+  background: color-mix(in srgb, var(--primary) 86%, var(--foreground));
+}
+.dark .library-search:focus-within {
+  outline-color: var(--primary);
+}
+.dark .chapter-list > button:hover {
+  background: var(--muted);
+}

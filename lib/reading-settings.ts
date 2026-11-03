@@ -1,4 +1,5 @@
-export type ReadingTheme = 'paper' | 'sepia' | 'night';
+// Match theme follows the app theme's page colors; Paper and Sepia are fixed.
+export type ReadingTheme = 'match' | 'paper' | 'sepia';
 export type ReadingFont = 'book' | 'classic' | 'sans' | 'accessible';
 export type ReadingSpacing = 'compact' | 'comfortable' | 'airy';
 export type ReadingMargin = 'narrow' | 'standard' | 'wide';
@@ -16,7 +17,7 @@ export type ReadingPreferences = {
 };
 
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
-  theme: 'paper',
+  theme: 'match',
   fontSize: 20,
   font: 'book',
   spacing: 'comfortable',
@@ -25,6 +26,11 @@ export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
   brightness: 100,
   pageTurnsLocked: false,
 };
+
+// Saved with the settings. Before version 2, Paper and Night just mirrored the
+// app's light or dark mode, so those start on Match theme; Sepia was a real
+// choice and is kept.
+export const READING_PREFERENCES_VERSION = 2;
 
 export const FONT_STACKS: Record<ReadingFont, string> = {
   book: 'Georgia, serif',
@@ -59,12 +65,15 @@ export function normalizeReadingPreferences(
 ): ReadingPreferences {
   const input =
     value && typeof value === 'object'
-      ? (value as Partial<ReadingPreferences>)
+      ? (value as Partial<ReadingPreferences> & { version?: unknown })
       : {};
+  const current = input.version === READING_PREFERENCES_VERSION;
   return {
-    theme: isOneOf(input.theme, ['paper', 'sepia', 'night'])
-      ? input.theme
-      : 'paper',
+    theme:
+      input.theme === 'sepia' ||
+      (current && isOneOf(input.theme, ['match', 'paper']))
+        ? input.theme
+        : 'match',
     fontSize:
       typeof input.fontSize === 'number' &&
       input.fontSize >= 14 &&

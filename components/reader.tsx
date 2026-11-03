@@ -63,16 +63,16 @@ import {
   repairChapterLabel,
   type Chapter,
 } from '@/lib/chapters';
-import { ThemeButtons, useAppTheme } from '@/components/theme-provider';
+import { ThemePicker, useAppTheme } from '@/components/theme-provider';
+import type { AppThemeDefinition } from '@/lib/themes';
 import { bindReaderTaps } from '@/lib/reader-gestures';
 import { EpubReflow, positionAfterReflow } from '@/lib/epub-reflow';
 import {
-  alignTargetToPageTop,
   clearPageShift,
   clearPageSlide,
+  displayAtLine,
   firstVisibleTextCfi,
   PAGE_SHIFT_CSS,
-  slidePageToTarget,
   reportLatestLocation,
   restoreEpubLocation,
   resizeEpubAt,
@@ -97,6 +97,7 @@ import {
 import {
   DEFAULT_READING_PREFERENCES,
   FONT_STACKS,
+  READING_PREFERENCES_VERSION,
   LETTER_SPACING,
   LINE_HEIGHTS,
   PAGE_MARGINS,
@@ -113,11 +114,12 @@ type Props = {
   onClose: () => void;
   onUpdate: (book: LibraryBook) => void;
 };
-const palette = {
-  paper: { bg: '#ffffff', fg: '#243349' },
-  sepia: { bg: '#f7eddc', fg: '#443b30' },
-  night: { bg: '#182332', fg: '#dbe3ef' },
-};
+// Paper and Sepia are fixed; Match theme uses the app theme's page colors.
+function pageColors(theme: ReadingTheme, app: AppThemeDefinition) {
+  if (theme === 'paper') return { bg: '#ffffff', fg: '#243349' };
+  if (theme === 'sepia') return { bg: '#f7eddc', fg: '#443b30' };
+  return { bg: app.colors.page, fg: app.colors.pageText };
+}
 const highlightStyles = {
   fill: '#f6c453',
   'fill-opacity': '0.42',
@@ -171,7 +173,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   const pendingHighlightRange = useRef<string | null>(null);
   const selectedContents = useRef<Contents | null>(null);
   const epubContents = useRef(new Set<Contents>());
-  const [theme, setTheme] = useState<ReadingTheme>('paper');
+  const [theme, setTheme] = useState<ReadingTheme>(
+    DEFAULT_READING_PREFERENCES.theme,
+  );
   const [fontSize, setFontSize] = useState(
     DEFAULT_READING_PREFERENCES.fontSize,
   );
@@ -272,18 +276,11 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   // rotation) keep that exact line visible; any page turn or jump clears it.
   const screenAnchor = useRef<string | undefined>(undefined);
   const navigationPending = useRef(false);
-  const previousAppTheme = useRef(appTheme.theme);
-  const storedReaderTheme = useRef(false);
-  useEffect(() => {
-    if (
-      appTheme.ready &&
-      (!storedReaderTheme.current ||
-        previousAppTheme.current !== appTheme.theme)
-    )
-      setTheme(appTheme.theme === 'dark' ? 'night' : 'paper');
-    previousAppTheme.current = appTheme.theme;
-  }, [appTheme.theme, appTheme.ready]);
+  const colors = pageColors(theme, appTheme.definition);
+  const pageBg = colors.bg;
+  const pageFg = colors.fg;
   const settings = useRef({
+    colors,
     theme,
     fontSize,
     font,
@@ -292,8 +289,16 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     alignment,
   });
   useEffect(() => {
-    settings.current = { theme, fontSize, font, spacing, margin, alignment };
-  }, [theme, fontSize, font, spacing, margin, alignment]);
+    settings.current = {
+      colors,
+      theme,
+      fontSize,
+      font,
+      spacing,
+      margin,
+      alignment,
+    };
+  });
   const updateHighlightVisit = useCallback((visit: HighlightVisit | null) => {
     highlightVisitRef.current = visit;
     setHighlightVisit(visit);
@@ -494,10 +499,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       const raw = JSON.parse(
         localStorage.getItem('leaf-reading-settings') || '{}',
       );
-      storedReaderTheme.current =
-        raw &&
-        typeof raw === 'object' &&
-        ['paper', 'sepia', 'night'].includes(raw.theme);
       const saved = normalizeReadingPreferences(raw);
       setTheme(saved.theme);
       setFontSize(saved.fontSize);
@@ -673,7 +674,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               contentListeners.delete(view.contents);
             }
           });
-          const colors = palette[settings.current.theme];
+          const colors = settings.current.colors;
           const typography = reflowableEpub.current
             ? {
                 'font-family': `${FONT_STACKS[settings.current.font]} !important`,
@@ -772,11 +773,19 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           const resume = initial.current.position.location || undefined;
           navigationPending.current = true;
           try {
-            const restored = await restoreEpubLocation(r, resume, () => ({
+            let restored = await restoreEpubLocation(r, resume, () => ({
               width: cancelled ? 0 : (mount.current?.clientWidth ?? 0),
               height: cancelled ? 0 : (mount.current?.clientHeight ?? 0),
             }));
             if (cancelled) return;
+            // Start the reopened page at the saved line, as after a resize,
+            // and keep that line for later Focus or text-size changes.
+            if (resume && reflowableEpub.current) {
+              screenAnchor.current = resume;
+              await displayAtLine(r, resume, renderedContents, true);
+              if (cancelled) return;
+              restored = await reportLatestLocation(r);
+            }
             let sectionCount = 0;
             localBook.spine.each(() => sectionCount++);
             save(
@@ -834,6 +843,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       localStorage.setItem(
         'leaf-reading-settings',
         JSON.stringify({
+          version: READING_PREFERENCES_VERSION,
           theme,
           fontSize,
           font,
@@ -897,13 +907,20 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       }
       navigationPending.current = true;
       setTurning(true);
-      screenAnchor.current = undefined;
+      // Keep the line the reader is looking at, as for a resize: a text size
+      // change must not jump to the paragraph where the page's saved place
+      // happens to start, or to a page chosen before the new layout settles.
+      const area = mount.current?.getBoundingClientRect();
+      screenAnchor.current ??= area
+        ? firstVisibleTextCfi(epubContents.current, area)
+        : undefined;
       clearPageShift(epubContents.current);
       const previous =
         highlightVisitRef.current?.current.location ?? current.current.location;
+      const target = screenAnchor.current ?? previous;
       try {
-        r.themes.override('color', palette[theme].fg, true);
-        r.themes.override('background', palette[theme].bg, true);
+        r.themes.override('color', pageFg, true);
+        r.themes.override('background', pageBg, true);
         if (reflowableEpub.current) {
           r.themes.override('font-family', FONT_STACKS[font], true);
           r.themes.override('letter-spacing', LETTER_SPACING[font], true);
@@ -913,7 +930,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           r.themes.override('padding-right', `${PAGE_MARGINS[margin]}px`, true);
           r.themes.fontSize(`${fontSize}px`);
         }
-        if (previous) await r.display(previous);
+        if (target)
+          await displayAtLine(
+            r,
+            target,
+            epubContents.current,
+            reflowableEpub.current && screenAnchor.current === target,
+          );
         const reported = await reportLatestLocation(r);
         if (!cancelled) {
           let count = 0;
@@ -950,7 +973,8 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       clearTimeout(timer);
     };
   }, [
-    theme,
+    pageBg,
+    pageFg,
     fontSize,
     font,
     spacing,
@@ -1043,24 +1067,13 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
             area.clientHeight,
             target || undefined,
           );
-          if (target) {
-            await r.display(target);
-            // The new columns finish laying out a frame later; aim again so
-            // the page is chosen from the settled layout, not the old one.
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-            await r.display(target);
-            // Start the page at the reader's line instead of mid-page.
-            // Redisplay either way: a failed attempt removes its gap again,
-            // and the fallback then slides this one page up to the line.
-            if (reflowableEpub.current && screenAnchor.current === target) {
-              const aligned = alignTargetToPageTop(
-                epubContents.current,
-                target,
-              );
-              await r.display(target);
-              if (!aligned) slidePageToTarget(epubContents.current, target);
-            }
-          }
+          if (target)
+            await displayAtLine(
+              r,
+              target,
+              epubContents.current,
+              reflowableEpub.current && screenAnchor.current === target,
+            );
           const reported = await reportLatestLocation(r);
           if (
             !cancelled &&
@@ -1523,7 +1536,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           <p>{book.author}</p>
         </div>
         <div className="reader-tools" role="toolbar" aria-label="Reader tools">
-          <ThemeButtons />
+          <ThemePicker />
           {book.format === 'epub' && (
             <>
               <button
@@ -1672,7 +1685,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         aria-label={`${book.title} reading page`}
         aria-describedby="reader-touch-help"
         aria-keyshortcuts="ArrowLeft ArrowRight Escape"
-        style={{ background: palette[theme].bg, color: palette[theme].fg }}
+        style={{ background: colors.bg, color: colors.fg }}
       >
         {book.format === 'pdf' && !loading && pdf.current && (
           <PdfPage
@@ -1878,8 +1891,6 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                   onValueChange={(value) => {
                     if (value) {
                       setTheme(value as ReadingTheme);
-                      if (value !== 'sepia')
-                        appTheme.setTheme(value === 'night' ? 'dark' : 'light');
                     }
                   }}
                 >
@@ -1887,9 +1898,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="match">Match theme</SelectItem>
                     <SelectItem value="paper">Paper</SelectItem>
                     <SelectItem value="sepia">Sepia</SelectItem>
-                    <SelectItem value="night">Night</SelectItem>
                   </SelectContent>
                 </Select>
               </label>

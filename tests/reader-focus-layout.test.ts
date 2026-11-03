@@ -14,6 +14,10 @@ const readerSource = readFileSync(
   new URL('../components/reader.tsx', import.meta.url),
   'utf8',
 );
+const locationSource = readFileSync(
+  new URL('../lib/epub-location.ts', import.meta.url),
+  'utf8',
+);
 
 function rule(selector: string) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -85,23 +89,41 @@ test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT t
     readerSource,
     /book\.format === 'pdf' \? '' : 'reader-full-page'/,
   );
-  // Resizes keep the first line on screen visible, aim again once the new
-  // columns settle, and only forget that line when the reader moves on.
+  // Resizes, Focus switches and text-size changes keep the first line on
+  // screen visible, and only forget that line when the reader moves on.
   assert.match(readerSource, /screenAnchor\.current = firstVisibleTextCfi\(/);
-  assert.match(readerSource, /const target = screenAnchor\.current \?\? previous;/);
   assert.match(
     readerSource,
-    /await r\.display\(target\);\s*\/\/[^\n]*\n[^\n]*\n\s*await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\);\s*await r\.display\(target\);/,
+    /screenAnchor\.current \?\?= area\s*\?\s*firstVisibleTextCfi\(/,
+  );
+  assert.equal(
+    (
+      readerSource.match(/const target = screenAnchor\.current \?\? previous;/g) ||
+      []
+    ).length,
+    2,
+  );
+  assert.equal(
+    (
+      readerSource.match(
+        /await displayAtLine\(\s*r,\s*target,\s*epubContents\.current,\s*reflowableEpub\.current && screenAnchor\.current === target,\s*\);/g,
+      ) || []
+    ).length,
+    2,
   );
   assert.ok(
-    (readerSource.match(/screenAnchor\.current = undefined;/g) || []).length >= 4,
+    (readerSource.match(/screenAnchor\.current = undefined;/g) || []).length >= 3,
   );
-  // After a resize the reader's line starts the page: first by an invisible
-  // gap, otherwise by sliding that one page up. Page turns and jumps undo the
-  // slide; any new layout clears both.
+  // The shared helper aims again once new columns settle, then starts the page
+  // at the line: first by an invisible gap, otherwise by sliding that one page
+  // up. Page turns and jumps undo the slide; any new layout clears both.
   assert.match(
-    readerSource,
-    /const aligned = alignTargetToPageTop\([\s\S]*?await r\.display\(target\);\s*if \(!aligned\) slidePageToTarget\(epubContents\.current, target\);/,
+    locationSource,
+    /await reader\.display\(target\);\s*await new Promise\(\(resolve\) => requestAnimationFrame\(resolve\)\);\s*await reader\.display\(target\);/,
+  );
+  assert.match(
+    locationSource,
+    /const aligned = alignTargetToPageTop\(contents, target\);\s*await reader\.display\(target\);\s*if \(!aligned\) slidePageToTarget\(contents, target\);/,
   );
   assert.ok(
     (readerSource.match(/clearPageSlide\(epubContents\.current\);/g) || [])
