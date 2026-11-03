@@ -133,6 +133,7 @@ type Props = {
   onUpdate: (book: LibraryBook) => void;
 };
 // Paper and Sepia are fixed; Match theme uses the app theme's page colors.
+const FOCUS_TOOLS_MS = 3000;
 function pageColors(theme: ReadingTheme, app: AppThemeDefinition) {
   if (theme === 'paper') return { bg: '#ffffff', fg: '#243349' };
   if (theme === 'sepia') return { bg: '#f7eddc', fg: '#443b30' };
@@ -243,6 +244,29 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     () => setReaderControls(!controlsVisibleRef.current),
     [setReaderControls],
   );
+  // In Focus, the lock and controls buttons show for a few seconds, then hide
+  // until their corner is tapped. That tap only reveals them, so a hidden
+  // button is never pressed by accident.
+  const [focusTools, setFocusTools] = useState(true);
+  const focusToolsTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const focusToolsRevealedAt = useRef(0);
+  const showFocusTools = useCallback(() => {
+    setFocusTools(true);
+    clearTimeout(focusToolsTimer.current);
+    focusToolsTimer.current = setTimeout(
+      () => setFocusTools(false),
+      FOCUS_TOOLS_MS,
+    );
+  }, []);
+  useEffect(() => {
+    if (!controlsVisible) showFocusTools();
+    return () => clearTimeout(focusToolsTimer.current);
+  }, [controlsVisible, showFocusTools]);
+  function focusToolPressed() {
+    if (Date.now() - focusToolsRevealedAt.current < 400) return false;
+    showFocusTools();
+    return true;
+  }
   useLayoutEffect(() => {
     const root = readerRoot.current;
     const header = readerHeader.current;
@@ -1798,13 +1822,22 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         className="reader-focus-actions"
         role="toolbar"
         aria-label="Focus reading tools"
+        data-hidden={focusTools ? undefined : ''}
+        onPointerDown={() => {
+          if (focusTools) return;
+          focusToolsRevealedAt.current = Date.now();
+          showFocusTools();
+        }}
+        onFocus={showFocusTools}
       >
         <button
           className={`reader-focus-lock ${pageTurnsLocked ? 'is-marked' : ''}`}
           aria-label={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
           title={pageTurnsLocked ? 'Unlock page turns' : 'Lock page turns'}
           aria-pressed={pageTurnsLocked}
-          onClick={() => setPageTurnsLocked((locked) => !locked)}
+          onClick={() =>
+            focusToolPressed() && setPageTurnsLocked((locked) => !locked)
+          }
         >
           <LockKeyhole size={18} />
         </button>
@@ -1813,7 +1846,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           className="reader-show-controls"
           aria-label="Show reading controls"
           title="Show reading controls"
-          onClick={() => setReaderControls(true)}
+          onClick={() => focusToolPressed() && setReaderControls(true)}
         >
           <Eye size={18} />
           <span className="sr-only">Controls</span>

@@ -145,6 +145,14 @@ test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT t
   );
   assert.match(readerSource, /shiftStyle\.textContent = PAGE_SHIFT_CSS;/);
 
+  // Focus buttons hide after three seconds; a tap on their corner shows them.
+  assert.match(readerSource, /const FOCUS_TOOLS_MS = 3000;/);
+  assert.match(rule('.reader-focus-actions[data-hidden]'), /opacity:\s*0/);
+  assert.match(
+    rule('.reader-focus-actions[data-hidden] > button'),
+    /pointer-events:\s*none/,
+  );
+
   const recoveryControl = rule('.reader-focus-actions');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
   assert.match(recoveryControl, /display:\s*none/);
