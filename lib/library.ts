@@ -26,12 +26,14 @@ export function positionLabel(position: Position) {
   return page ? `${position.label} · ${page}` : position.label;
 }
 export type Bookmark = Position & { id: string; createdAt: number };
+export type HighlightColor = 'yellow' | 'pink' | 'green' | 'blue';
 export type Highlight = Position & {
   id: string;
   createdAt: number;
   cfiRange: string;
   text: string;
-  color: 'yellow';
+  color: HighlightColor;
+  note?: string;
 };
 export type LibraryBook = {
   id: string;

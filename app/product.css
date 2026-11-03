@@ -845,9 +845,16 @@ footer span {
 .reader-focus .reader-highlight-action {
   bottom: calc(env(safe-area-inset-bottom) + 68px);
 }
+.reader-highlight-action {
+  flex-wrap: wrap;
+}
+.reader-highlight-action > .row-break {
+  flex-basis: 100%;
+  height: 0;
+}
 .reader-highlight-action > span {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -857,7 +864,27 @@ footer span {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin-left: auto;
   white-space: nowrap;
+}
+.highlight-colors {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.highlight-color {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 2px solid #00000026;
+  border-radius: 50%;
+}
+.highlight-color[aria-pressed='true'] {
+  box-shadow:
+    0 0 0 2px #fff4be,
+    0 0 0 4px #382b08;
 }
 .reader-highlight-visit {
   position: absolute;
@@ -1157,6 +1184,136 @@ footer span {
   color: var(--foreground);
   font-weight: 600;
   line-height: 1.45;
+}
+/* Each saved highlight carries a stripe in its color; the dot beside it
+   opens a row of colors to change it. */
+.bookmark-list > .highlight-item {
+  flex-wrap: wrap;
+  padding-left: 14px;
+  box-shadow: inset 4px 0 0 var(--highlight);
+}
+.highlight-recolor {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin: 0 6px;
+  padding: 0;
+  border: 2px solid #00000026;
+  border-radius: 50%;
+  background: var(--highlight);
+}
+.highlight-recolor[aria-expanded='true'] {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--foreground);
+}
+.highlight-item > .highlight-colors {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+  padding: 0 6px 14px;
+}
+.highlight-item .highlight-color[aria-pressed='true'] {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--foreground);
+}
+.highlight-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 0;
+  border: 0;
+}
+.highlight-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+}
+.highlight-filters button[aria-pressed='true'] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.highlight-filters i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.highlight-item > .highlight-note,
+.highlight-item > .highlight-add-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: -6px 0 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+.highlight-item > .highlight-note {
+  flex: 1 1 100%;
+  color: var(--foreground);
+  font-style: italic;
+  line-height: 1.45;
+}
+.highlight-note > svg,
+.highlight-add-note > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--primary);
+}
+.highlight-note > span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  white-space: pre-wrap;
+}
+.highlight-item > .highlight-add-note {
+  flex: 1 1 100%;
+  color: var(--primary);
+}
+.highlight-note-editor {
+  flex: 1 1 100%;
+  margin: -4px 6px 14px 0;
+}
+.highlight-note-editor textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.highlight-note-editor textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.highlight-note-editor > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.highlight-note-editor small {
+  margin: 0 auto 0 0;
+}
+.highlight-note-editor .primary {
+  min-height: 36px;
+  padding: 0 18px;
+  border-radius: 999px;
 }
 .bookmark-list > p,
 .chapter-list > p {

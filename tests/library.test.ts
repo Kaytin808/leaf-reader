@@ -463,6 +463,17 @@ test('full-library backup restores files, positions, highlights, statistics, cov
         text: 'test',
         color: 'yellow' as const,
       },
+      {
+        location: '3',
+        progress: 75,
+        label: 'Chapter two',
+        id: 'noted',
+        createdAt: 3,
+        cfiRange: 'epubcfi(/6/4!/4/2,/1:0,/1:6)',
+        text: 'noted',
+        color: 'pink' as const,
+        note: 'Read this to mom\nsecond line',
+      },
     ],
   };
   await addBook(book, file);
@@ -482,6 +493,8 @@ test('full-library backup restores files, positions, highlights, statistics, cov
   assert.equal(restored.position.location, '2');
   assert.equal(restored.bookmarks[0].id, 'bookmark');
   assert.equal(restored.highlights?.[0].id, 'highlight');
+  // Highlight colors and notes come back exactly.
+  assert.deepEqual(restored.highlights, book.highlights);
   assert.equal(restored.readingActivity?.['2026-10-20'].pages, 4);
   assert.equal(restored.cover, book.cover);
   assert.equal(await (await getFile(restored.id)).text(), await file.text());

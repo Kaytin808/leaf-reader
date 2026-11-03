@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useCallback,
+  type CSSProperties,
 } from 'react';
 import type { Book, Rendition } from 'epubjs';
 import type { Location } from 'epubjs/types/rendition';
@@ -24,6 +25,7 @@ import {
   LockKeyhole,
   Minus,
   Plus,
+  StickyNote,
   Settings2,
   X,
   LoaderCircle,
@@ -52,6 +54,7 @@ import {
   isBookFinished,
   type LibraryBook,
   type Highlight,
+  type HighlightColor,
   type Position,
 } from '@/lib/library';
 import { prepareEpub, splitText } from '@/lib/book-files';
@@ -87,7 +90,17 @@ import {
   ReadingClock,
   readingTimeStatus,
 } from '@/lib/reading-statistics';
-import { createHighlight } from '@/lib/highlights';
+import {
+  createHighlight,
+  HIGHLIGHT_COLOR_NAMES,
+  HIGHLIGHT_COLORS,
+  highlightColor,
+  highlightStyles,
+  lastHighlightColor,
+  MAX_NOTE_LENGTH,
+  rememberHighlightColor,
+  withNote,
+} from '@/lib/highlights';
 import {
   beginHighlightVisit,
   finishHighlightVisit,
@@ -120,10 +133,6 @@ function pageColors(theme: ReadingTheme, app: AppThemeDefinition) {
   if (theme === 'sepia') return { bg: '#f7eddc', fg: '#443b30' };
   return { bg: app.colors.page, fg: app.colors.pageText };
 }
-const highlightStyles = {
-  fill: '#f6c453',
-  'fill-opacity': '0.42',
-};
 export default function Reader({ book, onClose, onUpdate }: Props) {
   const appTheme = useAppTheme();
   const initial = useRef(book);
@@ -169,6 +178,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     null,
   );
   const highlightVisitRef = useRef<HighlightVisit | null>(null);
+  const [highlightTint, setHighlightTint] =
+    useState<HighlightColor>(lastHighlightColor);
+  const [highlightFilter, setHighlightFilter] = useState<
+    HighlightColor | 'all' | 'notes'
+  >('all');
+  const [recoloring, setRecoloring] = useState<string | null>(null);
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
   const pendingHighlightRef = useRef<Highlight | null>(null);
   const pendingHighlightRange = useRef<string | null>(null);
   const selectedContents = useRef<Contents | null>(null);
@@ -747,7 +764,7 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               { id: highlight.id },
               openHighlights,
               'leaf-highlight',
-              highlightStyles,
+              highlightStyles(highlight.color),
             );
           r.on('selected', (cfiRange: string, contents: Contents) => {
             queueHighlight(cfiRange, contents);
@@ -1242,8 +1259,14 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     pendingHighlightRange.current = null;
     setPendingHighlight(null);
   }
-  async function saveHighlight(highlight: Highlight | null) {
-    if (!highlight) return;
+  async function saveHighlight(
+    draft: Highlight | null,
+    color: HighlightColor = highlightTint,
+  ) {
+    if (!draft) return;
+    const highlight = { ...draft, color };
+    setHighlightTint(color);
+    rememberHighlightColor(color);
     try {
       await writeQueue.current;
       const updated = await updateBook(book.id, (stored) => ({
@@ -1266,15 +1289,45 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
           { id: highlight.id },
           () => setPanel('highlights'),
           'leaf-highlight',
-          highlightStyles,
+          highlightStyles(color),
         );
       clearPendingHighlight();
+      return savedHighlights.find(
+        (item) => item.cfiRange === highlight.cfiRange,
+      );
     } catch (e) {
       setError(errorMessage(e));
     }
   }
-  async function savePendingHighlight() {
-    await saveHighlight(pendingHighlightRef.current);
+  async function savePendingHighlight(color?: HighlightColor) {
+    await saveHighlight(pendingHighlightRef.current, color);
+  }
+  // Note on the highlight bar: save the highlight, then write its note.
+  async function savePendingHighlightWithNote() {
+    const saved = await saveHighlight(pendingHighlightRef.current);
+    if (!saved) return;
+    setHighlightFilter('all');
+    startNote(saved);
+    setPanel('highlights');
+  }
+  function startNote(highlight: Highlight) {
+    setRecoloring(null);
+    setNoteDraft(highlight.note ?? '');
+    setEditingNote(highlight.id);
+  }
+  async function saveNote(highlight: Highlight, note: string) {
+    try {
+      const updated = await updateBook(book.id, (stored) => ({
+        highlights: (stored.highlights || []).map((item) =>
+          item.id === highlight.id ? withNote(item, note) : item,
+        ),
+      }));
+      setHighlights(updated.highlights || []);
+      callback.current(updated);
+      setEditingNote(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
   }
   function captureCurrentEpubSelection() {
     for (const contents of epubContents.current) {
@@ -1306,6 +1359,34 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
         ),
       }));
       rendition.current?.annotations.remove(highlight.cfiRange, 'highlight');
+      setHighlights(updated.highlights || []);
+      callback.current(updated);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
+  async function recolorHighlight(highlight: Highlight, color: HighlightColor) {
+    setRecoloring(null);
+    setEditingNote(null);
+    if (highlightColor(highlight.color) === color) return;
+    try {
+      const updated = await updateBook(book.id, (stored) => ({
+        highlights: (stored.highlights || []).map((item) =>
+          item.id === highlight.id ? { ...item, color } : item,
+        ),
+      }));
+      const r = rendition.current;
+      if (r) {
+        r.annotations.remove(highlight.cfiRange, 'highlight');
+        r.annotations.add(
+          'highlight',
+          highlight.cfiRange,
+          { id: highlight.id },
+          () => setPanel('highlights'),
+          'leaf-highlight',
+          highlightStyles(color),
+        );
+      }
       setHighlights(updated.highlights || []);
       callback.current(updated);
     } catch (e) {
@@ -1522,6 +1603,31 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   }
 
   const chapterStatus = chapterReadingStatus(chapters, position);
+  // Color chips appear once two or more colors are in use; a filter whose
+  // color is no longer used shows everything again.
+  const highlightCounts = HIGHLIGHT_COLOR_NAMES.map(
+    (color) =>
+      [
+        color,
+        highlights.filter((item) => highlightColor(item.color) === color)
+          .length,
+      ] as const,
+  ).filter(([, count]) => count > 0);
+  const notedCount = highlights.filter((item) => item.note).length;
+  const showHighlightFilters = highlightCounts.length > 1 || notedCount > 0;
+  const activeHighlightFilter =
+    (highlightFilter === 'notes' && notedCount > 0) ||
+    highlightCounts.some(([color]) => color === highlightFilter)
+      ? highlightFilter
+      : 'all';
+  const shownHighlights =
+    activeHighlightFilter === 'all'
+      ? highlights
+      : activeHighlightFilter === 'notes'
+        ? highlights.filter((item) => item.note)
+        : highlights.filter(
+            (item) => highlightColor(item.color) === activeHighlightFilter,
+          );
   const remainingTime = estimatedTimeRemainingStatus(
     position.progress,
     readingTime,
@@ -1691,6 +1797,26 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       {pendingHighlight && (
         <dialog open className="reader-highlight-action" aria-live="polite">
           <span title={pendingHighlight.text}>{pendingHighlight.text}</span>
+          <button
+            className="text-button highlight-note-start"
+            onClick={() => void savePendingHighlightWithNote()}
+          >
+            <StickyNote size={15} /> Note
+          </button>
+          <i className="row-break" aria-hidden="true" />
+          <fieldset className="highlight-colors">
+            <legend className="sr-only">Highlight color</legend>
+            {HIGHLIGHT_COLOR_NAMES.map((color) => (
+              <button
+                key={color}
+                className="highlight-color"
+                aria-label={`Highlight in ${color}`}
+                aria-pressed={color === highlightTint}
+                style={{ background: HIGHLIGHT_COLORS[color] }}
+                onClick={() => void savePendingHighlight(color)}
+              />
+            ))}
+          </fieldset>
           <button
             className="text-button"
             onClick={() => void savePendingHighlight()}
@@ -2115,13 +2241,52 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
               )}
             </div>
           )}
+          {panel === 'highlights' && showHighlightFilters && (
+            <fieldset className="highlight-filters">
+              <legend className="sr-only">Show highlights</legend>
+              <button
+                aria-pressed={activeHighlightFilter === 'all'}
+                onClick={() => setHighlightFilter('all')}
+              >
+                All {highlights.length}
+              </button>
+              {highlightCounts.length > 1 &&
+                highlightCounts.map(([color, count]) => (
+                  <button
+                    key={color}
+                    aria-label={`Show ${color} highlights`}
+                    aria-pressed={activeHighlightFilter === color}
+                    onClick={() => setHighlightFilter(color)}
+                  >
+                    <i style={{ background: HIGHLIGHT_COLORS[color] }} />{' '}
+                    {count}
+                  </button>
+                ))}
+              {notedCount > 0 && (
+                <button
+                  aria-pressed={activeHighlightFilter === 'notes'}
+                  onClick={() => setHighlightFilter('notes')}
+                >
+                  <StickyNote size={14} /> Notes {notedCount}
+                </button>
+              )}
+            </fieldset>
+          )}
           {panel === 'highlights' && (
             <div className="bookmark-list highlight-list">
               {highlights.length ? (
-                highlights.map((highlight) => (
-                  <div key={highlight.id}>
+                shownHighlights.map((highlight) => (
+                  <div
+                    key={highlight.id}
+                    className="highlight-item"
+                    style={
+                      {
+                        '--highlight':
+                          HIGHLIGHT_COLORS[highlightColor(highlight.color)],
+                      } as CSSProperties
+                    }
+                  >
                     <button onClick={() => void visitHighlight(highlight)}>
-                      <Highlighter size={17} />
                       <span>
                         <q>{highlight.text}</q>
                         <small>{highlight.label}</small>
@@ -2131,12 +2296,106 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
                       </span>
                     </button>
                     <button
+                      className="highlight-recolor"
+                      aria-label={`Change color of highlight ${highlight.text}`}
+                      aria-expanded={recoloring === highlight.id}
+                      onClick={() => {
+                        setEditingNote(null);
+                        setRecoloring(
+                          recoloring === highlight.id ? null : highlight.id,
+                        );
+                      }}
+                    />
+                    <button
                       className="icon-button"
                       aria-label={`Delete highlight ${highlight.text}`}
                       onClick={() => void deleteHighlight(highlight)}
                     >
                       <Trash2 size={15} />
                     </button>
+                    {recoloring === highlight.id && (
+                      <fieldset className="highlight-colors">
+                        <legend className="sr-only">New color</legend>
+                        {HIGHLIGHT_COLOR_NAMES.map((color) => (
+                          <button
+                            key={color}
+                            className="highlight-color"
+                            aria-label={`Make it ${color}`}
+                            aria-pressed={
+                              color === highlightColor(highlight.color)
+                            }
+                            style={{ background: HIGHLIGHT_COLORS[color] }}
+                            onClick={() =>
+                              void recolorHighlight(highlight, color)
+                            }
+                          />
+                        ))}
+                      </fieldset>
+                    )}
+                    {editingNote === highlight.id ? (
+                      <form
+                        className="highlight-note-editor"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void saveNote(highlight, noteDraft);
+                        }}
+                      >
+                        <textarea
+                          ref={(field) => {
+                            if (field && document.activeElement !== field) {
+                              field.focus();
+                              field.scrollIntoView({ block: 'nearest' });
+                            }
+                          }}
+                          aria-label={`Note for highlight ${highlight.text}`}
+                          placeholder="Write a note about this passage"
+                          maxLength={MAX_NOTE_LENGTH}
+                          rows={4}
+                          value={noteDraft}
+                          onChange={(event) => setNoteDraft(event.target.value)}
+                        />
+                        <div>
+                          <small>
+                            {noteDraft.length}/{MAX_NOTE_LENGTH}
+                          </small>
+                          {highlight.note && (
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => void saveNote(highlight, '')}
+                            >
+                              Delete note
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => setEditingNote(null)}
+                          >
+                            Cancel
+                          </button>
+                          <button type="submit" className="primary">
+                            Save
+                          </button>
+                        </div>
+                      </form>
+                    ) : highlight.note ? (
+                      <button
+                        className="highlight-note"
+                        aria-label={`Edit note: ${highlight.note}`}
+                        onClick={() => startNote(highlight)}
+                      >
+                        <StickyNote size={14} />
+                        <span>{highlight.note}</span>
+                      </button>
+                    ) : (
+                      <button
+                        className="highlight-add-note"
+                        onClick={() => startNote(highlight)}
+                      >
+                        <Plus size={14} /> Add note
+                      </button>
+                    )}
                   </div>
                 ))
               ) : (
