@@ -114,6 +114,16 @@ test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT t
   assert.ok(
     (readerSource.match(/screenAnchor\.current = undefined;/g) || []).length >= 3,
   );
+  // A highlight visit remembers the line on screen; Back to reading spot shows
+  // that line through the same settle-and-align path (a chapter re-renders).
+  assert.match(
+    readerSource,
+    /visitReturnLine\.current =\s*screenAnchor\.current \?\?\s*\(area \? firstVisibleTextCfi\(epubContents\.current, area\) : undefined\);/,
+  );
+  assert.match(
+    readerSource,
+    /const line = visitReturnLine\.current \?\? destination\.location;[\s\S]*?await displayAtLine\(\s*reader,\s*line,/,
+  );
   // The shared helper aims again once new columns settle, then starts the page
   // at the line: first by an invisible gap, otherwise by sliding that one page
   // up. Page turns and jumps undo the slide; any new layout clears both.

@@ -275,6 +275,9 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
   // The first line on screen when the page last moved. Resizes (Focus mode,
   // rotation) keep that exact line visible; any page turn or jump clears it.
   const screenAnchor = useRef<string | undefined>(undefined);
+  // The first line on screen when a highlight visit began, so Back to reading
+  // spot returns to that exact line (not just the saved page's start).
+  const visitReturnLine = useRef<string | undefined>(undefined);
   const navigationPending = useRef(false);
   const colors = pageColors(theme, appTheme.definition);
   const pageBg = colors.bg;
@@ -1363,6 +1366,12 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     // quote preview. Nothing shown during the visit may enter that write queue.
     await writeQueue.current.catch(() => {});
     const returnTo = highlightVisitRef.current?.returnTo ?? current.current;
+    if (!highlightVisitRef.current) {
+      const area = mount.current?.getBoundingClientRect();
+      visitReturnLine.current =
+        screenAnchor.current ??
+        (area ? firstVisibleTextCfi(epubContents.current, area) : undefined);
+    }
     updateHighlightVisit(beginHighlightVisit(returnTo, highlight));
     await goTo(highlight.location, true);
   }
@@ -1385,7 +1394,17 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
     try {
       const destination = finishHighlightVisit(visit, 'return');
       requestedCfi.current = destination.location;
-      await reader.display(destination.location);
+      // Going back to another chapter re-renders it; show the remembered line
+      // once the new layout settles, at the top of the page, as for a resize.
+      const line = visitReturnLine.current ?? destination.location;
+      screenAnchor.current = visitReturnLine.current;
+      await displayAtLine(
+        reader,
+        line,
+        epubContents.current,
+        reflowableEpub.current && !!visitReturnLine.current,
+      );
+      visitReturnLine.current = undefined;
       const reported = await reportLatestLocation(reader);
       setAtStart(reported.atStart);
       setAtEnd(reported.atEnd);
@@ -1419,7 +1438,15 @@ export default function Reader({ book, onClose, onUpdate }: Props) {
       const destination = finishHighlightVisit(visit, 'continue');
       const reported = await reportLatestLocation(reader);
       updateHighlightVisit(null);
-      persistEpubLocation(reported, destination.location);
+      // Save the first line on screen, so reopening shows this same page
+      // rather than starting at the highlighted passage.
+      const area = mount.current?.getBoundingClientRect();
+      const line = area
+        ? firstVisibleTextCfi(epubContents.current, area)
+        : undefined;
+      visitReturnLine.current = undefined;
+      screenAnchor.current = line;
+      persistEpubLocation(reported, line ?? destination.location);
       await writeQueue.current;
     } catch {
       setError('This spot could not be made your new reading place.');
