@@ -145,6 +145,12 @@ test('normal reading keeps the page between toolbars; Focus gives EPUB and TXT t
   );
   assert.match(readerSource, /shiftStyle\.textContent = PAGE_SHIFT_CSS;/);
 
+  // Focus leaves a strip under the page for the lock and controls buttons.
+  assert.match(
+    rule('.reader-full-page.reader-focus > .reading-area'),
+    /margin-bottom:\s*var\(--focus-strip\)/,
+  );
+
   const recoveryControl = rule('.reader-focus-actions');
   assert.match(recoveryControl, /safe-area-inset-bottom/);
   assert.match(recoveryControl, /display:\s*none/);

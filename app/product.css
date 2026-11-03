@@ -786,13 +786,27 @@ footer span {
 .reader-full-page.reader-focus > .reader-bottom {
   align-self: end;
 }
+/* Focus keeps a thin strip under the page for the lock and controls
+   buttons, so they never sit on top of the words. */
+.reader-full-page.reader-focus > .reading-area {
+  height: auto;
+  margin-bottom: var(--focus-strip);
+}
+.reader {
+  --focus-strip: 42px;
+}
 .reader-focus-actions {
   position: absolute;
   z-index: 30;
   right: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  bottom: calc(env(safe-area-inset-bottom) + 4px);
   display: none;
   gap: 8px;
+}
+.reader-full-page .reader-focus-actions .reader-show-controls,
+.reader-full-page .reader-focus-actions .reader-focus-lock {
+  width: 34px;
+  min-height: 34px;
 }
 .reader-focus .reader-focus-actions {
   display: flex;
